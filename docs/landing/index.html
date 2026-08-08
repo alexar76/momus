@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>MOMUS — red team that signs, never pays itself</title>
+<meta name="description" content="MOMUS finds flaws, Ed25519-signs findings, and cannot release its own bounty. Treasury holds the only payout key." />
+<meta property="og:title" content="MOMUS — autonomous adversarial audit" />
+<meta property="og:description" content="Safe read-only probes. Signed findings. Separate payer. Part of the AICOM ecosystem." />
+<meta property="og:url" content="https://alexar76.github.io/momus/" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #0a0c10;
+    --ink: #eef1f6;
+    --muted: #9aa3b5;
+    --iris: #6ea8ff;
+    --warn: #e8a23a;
+    --head: "Syne", system-ui, sans-serif;
+    --body: "IBM Plex Sans", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; color: var(--ink); font-family: var(--body);
+    background:
+      radial-gradient(60vw 50vw at 70% 10%, rgba(110,168,255,0.18), transparent 55%),
+      radial-gradient(50vw 40vw at 15% 85%, rgba(232,162,58,0.12), transparent 50%),
+      linear-gradient(165deg, #07090d, #0e121a 55%, #0a0c10);
+  }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 28px 22px 64px; }
+  nav { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .brand { font-family: var(--head); letter-spacing: 0.2em; font-weight: 800; text-decoration: none; color: var(--ink); }
+  .links a { color: var(--muted); text-decoration: none; margin-left: 14px; font-size: 14px; }
+  .links a:hover { color: var(--iris); }
+  hero, .hero { display: block; padding: 14vh 0 6vh; }
+  h1 {
+    font-family: var(--head); font-size: clamp(2.4rem, 7vw, 4.2rem); line-height: 0.95;
+    margin: 0 0 18px; letter-spacing: -0.02em;
+  }
+  .lead { max-width: 36rem; color: var(--muted); font-size: 1.15rem; margin: 0 0 28px; }
+  .cta { display: flex; flex-wrap: wrap; gap: 12px; }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 12px 18px; border-radius: 10px; text-decoration: none; font-weight: 600;
+  }
+  .btn-primary { background: var(--iris); color: #071018; }
+  .btn-ghost { border: 1px solid rgba(238,241,246,0.22); color: var(--ink); }
+  .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin-top: 48px; }
+  .card {
+    border: 1px solid rgba(238,241,246,0.12); border-radius: 14px; padding: 18px;
+    background: rgba(255,255,255,0.03);
+  }
+  .card h2 { font-family: var(--head); font-size: 1.05rem; margin: 0 0 8px; }
+  .card p { margin: 0; color: var(--muted); font-size: 0.95rem; }
+  footer { margin-top: 56px; color: var(--muted); font-size: 13px; }
+  footer a { color: var(--iris); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <nav>
+      <a class="brand" href="https://alexar76.github.io/momus/">MOMUS</a>
+      <div class="links">
+        <a href="https://momus.modelmarket.dev/">Live</a>
+        <a href="https://github.com/alexar76/momus">Source</a>
+        <a href="https://github.com/alexar76/treasury">Treasury</a>
+      </div>
+    </nav>
+    <section class="hero">
+      <h1>Finds. Signs.<br>Cannot pay itself.</h1>
+      <p class="lead">
+        Ecosystem red team: safe read-only probes, Ed25519-signed findings, self-learning from
+        public threat intel. Bounties release only through a separate Treasury key MOMUS never sees.
+      </p>
+      <div class="cta">
+        <a class="btn btn-primary" href="https://momus.modelmarket.dev/">Open live panel</a>
+        <a class="btn btn-ghost" href="https://github.com/alexar76/momus">GitHub</a>
+      </div>
+    </section>
+    <div class="grid">
+      <article class="card">
+        <h2>Separation of duties</h2>
+        <p>MOMUS audits and signs. <a href="https://github.com/alexar76/treasury" style="color:var(--warn)">Treasury</a> pays — different container, different key.</p>
+      </article>
+      <article class="card">
+        <h2>Signed evidence</h2>
+        <p>Every finding is machine-verifiable. No anonymous “trust me” reports into the bounty path.</p>
+      </article>
+      <article class="card">
+        <h2>AICOM peer</h2>
+        <p>Feeds ARGUS / WARDEN and the Factory remediation loop. MIT · self-hosted · DeepSeek default.</p>
+      </article>
+    </div>
+    <footer>
+      Part of <a href="https://magic-ai-factory.com/">AI-Factory / AICOM</a> ·
+      <a href="https://alexar76.github.io/momus/">alexar76.github.io/momus</a>
+    </footer>
+  </div>
+</body>
+</html>
