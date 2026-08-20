@@ -1,0 +1,41 @@
+[project]
+# aimarket-momus. Unprefixed short names on PyPI are claimable by strangers whose package can
+# install a colliding top-level module (the incident is recorded at the top of
+# oracles/core/pyproject.toml, and it bit gaia twice — see gaia/pyproject.toml). MOMUS lives
+# outside oracles/, so the same rule applies: the distribution name is always aimarket-*.
+name = "aimarket-momus"
+version = "0.1.0"
+description = "MOMUS — autonomous adversarial-audit (red team) satellite: safe conformance probes against the ecosystem's own components, signed findings, and a payer-separated bounty ledger"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["aimarket-oracle-core>=0.2", "httpx>=0.27.0"]
+
+[project.optional-dependencies]
+# MOMUS_DATABASE_URL is silently ignored without a driver — store.py degrades to a
+# per-container SQLite file and the corpus does not survive a redeploy. Install with
+# `pip install -e 'momus[postgres]'` (the Dockerfile does) whenever a DSN is configured.
+postgres = ["psycopg[binary]>=3.2,<4"]
+dev = ["pytest>=8.3.0", "pytest-asyncio>=0.24.0", "httpx>=0.27.0", "pytest-cov>=5.0.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["momus"]
+
+# Keep sdist to the Python package only — frontend/.gitignore otherwise ships and
+# fails publish_pypi.sh's foreign-.gitignore gate (hatch walks up for exclusions).
+[tool.hatch.build.targets.sdist]
+include = [
+  "/momus",
+  "/tests",
+  "/README.md",
+  "/LICENSE",
+  "/pyproject.toml",
+  "/.gitignore",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

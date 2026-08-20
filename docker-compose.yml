@@ -1,0 +1,103 @@
+# MOMUS — adversarial-audit satellite. Prod home: the ORACLE host, published on its own domain
+# momus.modelmarket.dev through the nginx TLS edge (redteam.modelmarket.dev never resolved). All containers
+# bind LOOPBACK only — never 0.0.0.0 — so nothing is exposed on a raw port; nginx is the only edge.
+#
+# The compose brings up THREE containers that make the "someone else pays" property physical:
+#   momus-backend    holds only the SCANNER key   (finds + signs, cannot pay)
+#   momus-treasury   holds only the TREASURY key   (the sole releaser of a bounty)
+#   momus-frontend   the landing + live panel
+# Each key lives in a SEPARATE named volume; momus-backend never mounts the treasury volume.
+#
+# Build from the MONOREPO ROOT (the backends need oracle-core in context):
+#     docker compose -f momus/docker-compose.yml up -d --build
+services:
+  momus-backend:
+    build:
+      context: ..
+      dockerfile: momus/Dockerfile
+    environment:
+      MOMUS_PORT: "9400"
+      MOMUS_PUBLIC_URL: ${MOMUS_PUBLIC_URL:-https://momus.modelmarket.dev}
+      MOMUS_CORS_ORIGINS: ${MOMUS_CORS_ORIGINS:-https://momus.modelmarket.dev}
+      # ── LLM: default to the ecosystem's own DeepSeek V4 Pro (remote API — no heavy local model
+      # container needed on a box with modest RAM). Override to ollama/lmstudio/anthropic/openai/
+      # metis as desired. Key comes from DEEPSEEK_API_KEY (see llm/persist_deepseek.py).
+      MOMUS_LLM_PROVIDER: ${MOMUS_LLM_PROVIDER:-deepseek}
+      MOMUS_LLM_MODEL: ${MOMUS_LLM_MODEL:-deepseek-v4-pro}
+      MOMUS_LLM_BASE_URL: ${MOMUS_LLM_BASE_URL:-}
+      MOMUS_LLM_API_KEY: ${MOMUS_LLM_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      # ── Payout: MOMUS submits to the SEPARATE treasury service; it never holds the payout key.
+      MOMUS_TREASURY_URL: ${MOMUS_TREASURY_URL:-http://momus-treasury:9401}
+      # Registered external verifier(s) — Metis is the independent judge whose confirmation is
+      # required for high/critical payouts. Comma-separated Ed25519 pubkeys.
+      MOMUS_EXTERNAL_VERIFIERS: ${MOMUS_EXTERNAL_VERIFIERS:-}
+      AIMARKET_VERIFY_METIS_URL: ${AIMARKET_VERIFY_METIS_URL:-http://metis:9100}
+      # ── The public security bulletin. Becoming an advisory publisher is an operator
+      # decision (momus/bulletin.py), which is why the code default is off — but THIS
+      # deployment is the publisher DIOSCURI's #momus-bulletin reads from, so it is on
+      # here and turned off with MOMUS_BULLETIN=0.
+      MOMUS_BULLETIN: ${MOMUS_BULLETIN:-1}
+      # ── Threat intel + self-learning: OFF by default; opt-in and host-allowlisted.
+      MOMUS_THREAT_INTEL: ${MOMUS_THREAT_INTEL:-0}
+      MOMUS_OPERATOR_TOKEN: ${MOMUS_OPERATOR_TOKEN:-}
+      # ── Posture: prod fail-closed; crypto master switch off for the public demo.
+      AIFACTORY_PROD: ${AIFACTORY_PROD:-1}
+      AIFACTORY_CRYPTO_ENABLED: ${AIFACTORY_CRYPTO_ENABLED:-0}
+      MOMUS_SELF_ATTACK: ${MOMUS_SELF_ATTACK:-0}
+      MOMUS_SIGNING_KEY_PATH: /data/momus_signing_key
+      MOMUS_DATA_DIR: /data
+    volumes:
+      - momus-scanner-keys:/data
+    ports:
+      - "127.0.0.1:9400:9400"
+    restart: unless-stopped
+    networks:
+      - default
+      - ecosystem
+
+  momus-treasury:
+    build:
+      context: ..
+      dockerfile: treasury/Dockerfile
+    environment:
+      TREASURY_PORT: "9401"
+      TREASURY_KEY_PATH: /data/treasury_signing_key
+      TREASURY_LEDGER_PATH: /data/bounty_ledger.jsonl
+      TREASURY_CORS_ORIGINS: ${TREASURY_CORS_ORIGINS:-*}
+      MOMUS_EXTERNAL_VERIFIERS: ${MOMUS_EXTERNAL_VERIFIERS:-}
+      AIFACTORY_PROD: ${AIFACTORY_PROD:-1}
+      AIFACTORY_CRYPTO_ENABLED: ${AIFACTORY_CRYPTO_ENABLED:-0}
+      # Advisory decision-explainer only (never in the payout decision path): defaults to the
+      # ecosystem's DeepSeek V4 Pro, same as MOMUS. Runs AFTER a decision is made.
+      TREASURY_LLM_PROVIDER: ${TREASURY_LLM_PROVIDER:-deepseek}
+      MOMUS_LLM_MODEL: ${MOMUS_LLM_MODEL:-deepseek-v4-pro}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+    volumes:
+      # A SEPARATE volume the backend never mounts — the payout key is physically out of reach.
+      - momus-treasury-keys:/data
+    ports:
+      - "127.0.0.1:9401:9401"
+    restart: unless-stopped
+    networks:
+      - default
+      - ecosystem
+
+  momus-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:5186:80"
+    restart: unless-stopped
+
+volumes:
+  momus-scanner-keys:
+  momus-treasury-keys:
+
+# Shared ecosystem network (same one the hub / metis / oracles join) so MOMUS can reach Metis
+# (verifier + cognition) and probe sibling services by name. Created by the hub/oracles stack;
+# external: true means MOMUS never owns or recreates it.
+networks:
+  ecosystem:
+    external: true

@@ -1,0 +1,13 @@
+# Standalone image for the GitHub mirror (oracle-core vendored at publish time).
+# Build from the satellite repo root:
+#   docker build -f Dockerfile.standalone -t ghcr.io/alexar76/momus .
+FROM python:3.11-slim
+WORKDIR /app
+
+COPY vendor/oracle-core /app/oracle-core
+COPY . /app/momus
+
+RUN pip install --no-cache-dir -e /app/oracle-core -e /app/momus
+
+EXPOSE 9400
+CMD ["python", "-m", "momus.main"]
