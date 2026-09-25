@@ -1,0 +1,534 @@
+"""MOMUS's own vulnerability corpus — the personal database of holes it has found.
+
+Findings used to live in an in-memory ring, which meant a restart erased MOMUS's memory of every
+bug it had ever found. That undercuts the whole point of a self-learning auditor: it should get
+sharper over time, and it should be able to say "I found this before" and "this one was refuted".
+So findings are persisted properly, with a queryable schema.
+
+Backends, in order of preference — the satellite must never NEED infrastructure to run:
+
+    SQLite   (default)   stdlib, zero dependencies, real SQL + indexes, and an atomic UNIQUE
+                         constraint on the dedup key. Perfect for a single MOMUS instance.
+    Postgres (opt-in)    when MOMUS_DATABASE_URL / DATABASE_URL is set. Use this when several
+                         MOMUS instances share one corpus, or when the monitor/BI needs to query
+                         it alongside the rest of the ecosystem's data.
+
+The schema is deliberately narrow: a finding, its verdicts, and the scan it came from. Payouts are
+NOT here — money lives in the Treasury's own ledger, behind a different key, in a different
+service. Keeping the corpus free of payout state is part of the separation: a compromised scanner
+database cannot rewrite what was paid.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import sqlite3
+import time
+from contextlib import contextmanager
+from dataclasses import asdict
+from typing import Any, Iterator
+
+from momus.findings import Finding
+
+_SQLITE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS findings (
+    finding_id     TEXT PRIMARY KEY,
+    dedup_key      TEXT NOT NULL,
+    target         TEXT NOT NULL,
+    target_kind    TEXT NOT NULL,
+    probe          TEXT NOT NULL,
+    category       TEXT NOT NULL,
+    severity       TEXT NOT NULL,
+    outcome        TEXT NOT NULL,
+    status         TEXT NOT NULL,
+    title          TEXT NOT NULL,
+    detail         TEXT NOT NULL,
+    scanner_pubkey TEXT NOT NULL,
+    created_at     TEXT NOT NULL,
+    first_seen_at  TEXT NOT NULL,
+    last_seen_at   TEXT NOT NULL,
+    seen_count     INTEGER NOT NULL DEFAULT 1,
+    scan_id        TEXT,
+    doc            TEXT NOT NULL,         -- the FIRST signed finding as JSON (immutable record)
+    latest_doc     TEXT                   -- the newest signed sighting of the same bug
+);
+-- One row per distinct BUG. A rediscovery bumps seen_count instead of inserting a duplicate,
+-- which is what makes "have I seen this before?" answerable and keeps the corpus honest.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_findings_dedup ON findings(dedup_key);
+CREATE INDEX IF NOT EXISTS ix_findings_target   ON findings(target);
+CREATE INDEX IF NOT EXISTS ix_findings_severity ON findings(severity);
+CREATE INDEX IF NOT EXISTS ix_findings_status   ON findings(status);
+CREATE INDEX IF NOT EXISTS ix_findings_seen     ON findings(last_seen_at);
+
+CREATE TABLE IF NOT EXISTS verdicts (
+    verdict_id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    finding_id      TEXT NOT NULL,
+    verdict         TEXT NOT NULL,
+    method          TEXT NOT NULL,
+    score           REAL NOT NULL,
+    verifier_id     TEXT NOT NULL,
+    verifier_pubkey TEXT NOT NULL,
+    created_at      TEXT NOT NULL,
+    doc             TEXT NOT NULL,
+    UNIQUE(finding_id, verifier_pubkey, verdict)
+);
+CREATE INDEX IF NOT EXISTS ix_verdicts_finding ON verdicts(finding_id);
+
+CREATE TABLE IF NOT EXISTS scans (
+    scan_id     TEXT PRIMARY KEY,
+    started_at  TEXT NOT NULL,
+    finished_at TEXT NOT NULL,
+    targets     TEXT NOT NULL,
+    provider    TEXT,
+    counts      TEXT NOT NULL
+);
+
+-- The public security bulletin (momus.bulletin). One row per PUBLISHED advisory, keyed by the
+-- advisory number, with the dedup identity of the BUG carried alongside it — that mapping is the one
+-- thing about a bulletin that has to survive a restart, because a "stable id" that changes when the
+-- process does is not stable at all.
+CREATE TABLE IF NOT EXISTS advisories (
+    advisory_id TEXT PRIMARY KEY,      -- MOMUS-YYYY-NNNN
+    year        INTEGER NOT NULL,
+    seq         INTEGER NOT NULL,
+    dedup_key   TEXT NOT NULL,         -- the BUG's identity; one advisory per bug, not per report
+    status      TEXT NOT NULL,         -- open | fixed | withdrawn
+    component   TEXT NOT NULL,
+    severity    TEXT NOT NULL,
+    published   TEXT NOT NULL,
+    modified    TEXT NOT NULL,
+    doc         TEXT NOT NULL          -- the full UNREDACTED advisory as JSON (operator-only)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_advisories_dedup ON advisories(dedup_key);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_advisories_seq   ON advisories(year, seq);
+CREATE INDEX IF NOT EXISTS ix_advisories_status ON advisories(status);
+
+-- A high-water mark per year, NOT max(seq) over the advisories table. An advisory number must never
+-- be reused, and max(seq) would hand a withdrawn-and-deleted number straight to the next bug — so
+-- the counter only ever goes up, and gaps stay gaps.
+CREATE TABLE IF NOT EXISTS advisory_counter (
+    year     INTEGER PRIMARY KEY,
+    last_seq INTEGER NOT NULL
+);
+"""
+
+# Postgres needs the same shape with its own type names / upsert syntax.
+_PG_SCHEMA = _SQLITE_SCHEMA.replace(
+    "INTEGER PRIMARY KEY AUTOINCREMENT", "BIGSERIAL PRIMARY KEY"
+).replace("REAL", "DOUBLE PRECISION")
+
+
+def _now_z() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def database_url() -> str:
+    """Postgres DSN if the operator provided one, else empty (→ SQLite)."""
+    return (os.environ.get("MOMUS_DATABASE_URL") or os.environ.get("DATABASE_URL") or "").strip()
+
+
+class FindingStore:
+    """MOMUS's vulnerability corpus. SQLite by default, Postgres when a DSN is configured."""
+
+    def __init__(self, data_dir: str = "data", *, dsn: str | None = None, sqlite_path: str | None = None):
+        self._dsn = dsn if dsn is not None else database_url()
+        self.backend = "postgres" if self._dsn else "sqlite"
+        self._pg = None
+        if self.backend == "postgres":
+            try:
+                import psycopg  # noqa: F401  (psycopg3)
+                self._pg = "psycopg"
+            except ImportError:
+                try:
+                    import psycopg2  # noqa: F401
+                    self._pg = "psycopg2"
+                except ImportError:
+                    # No driver → degrade to SQLite rather than losing the corpus entirely.
+                    # Say so loudly: the operator asked for Postgres, and a silent SQLite
+                    # fallback means a per-container corpus that a redeploy throws away.
+                    logging.getLogger(__name__).error(
+                        "MOMUS_DATABASE_URL is set but no Postgres driver is installed "
+                        "(psycopg / psycopg2) — falling back to SQLite at %s. The corpus will "
+                        "NOT survive a redeploy. Install the extra: pip install 'aimarket-momus[postgres]'",
+                        sqlite_path or os.path.join(data_dir, "findings.db"),
+                    )
+                    self.backend = "sqlite"
+                    self._dsn = ""
+        self._path = sqlite_path or os.path.join(data_dir, "findings.db")
+        if self.backend == "sqlite":
+            os.makedirs(os.path.dirname(self._path) or ".", exist_ok=True)
+        self._init_schema()
+
+    # ── connections ─────────────────────────────────────────────────────────
+    @contextmanager
+    def _conn(self) -> Iterator[Any]:
+        if self.backend == "sqlite":
+            con = sqlite3.connect(self._path, timeout=10)
+            con.row_factory = sqlite3.Row
+            try:
+                con.execute("PRAGMA journal_mode=WAL")   # concurrent readers while we write
+                con.execute("PRAGMA foreign_keys=ON")
+                yield con
+                con.commit()
+            finally:
+                con.close()
+        else:
+            if self._pg == "psycopg":
+                import psycopg
+                with psycopg.connect(self._dsn) as con:
+                    yield con
+            else:
+                import psycopg2
+                import psycopg2.extras
+                con = psycopg2.connect(self._dsn)
+                try:
+                    yield con
+                    con.commit()
+                finally:
+                    con.close()
+
+    #: Columns added after the first release. `CREATE TABLE IF NOT EXISTS` does nothing to a
+    #: table that already exists, so an existing corpus needs these spelled out or every write
+    #: touching them fails on a database that predates them.
+    _ADDED_COLUMNS: tuple[tuple[str, str], ...] = (("latest_doc", "TEXT"),)
+
+    def _init_schema(self) -> None:
+        ddl = _SQLITE_SCHEMA if self.backend == "sqlite" else _PG_SCHEMA
+        with self._conn() as con:
+            if self.backend == "sqlite":
+                con.executescript(ddl)
+            else:
+                cur = con.cursor()
+                for stmt in [s.strip() for s in ddl.split(";") if s.strip()]:
+                    cur.execute(stmt)
+            cur = con.cursor()
+            for column, coltype in self._ADDED_COLUMNS:
+                try:
+                    cur.execute(f"ALTER TABLE findings ADD COLUMN {column} {coltype}")
+                except Exception:  # noqa: BLE001 - already there, which is the common case
+                    pass
+
+    def _ph(self) -> str:
+        """Parameter placeholder for the active backend."""
+        return "?" if self.backend == "sqlite" else "%s"
+
+    # ── writes ──────────────────────────────────────────────────────────────
+    def record_finding(self, finding: Finding, *, scan_id: str | None = None) -> dict[str, Any]:
+        """Insert a finding, or bump its seen_count if this bug is already known.
+
+        Returns {"new": bool, "seen_count": int} — the caller (and the panel) can tell a fresh
+        discovery from a rediscovery, which is exactly the memory an auditor needs.
+        """
+        doc = json.dumps(asdict(finding), ensure_ascii=False)
+        dedup = finding.dedup_key or finding.compute_dedup_key()
+        now = _now_z()
+        p = self._ph()
+        with self._conn() as con:
+            cur = con.cursor()
+            cur.execute(f"SELECT finding_id, seen_count FROM findings WHERE dedup_key = {p}", (dedup,))
+            row = cur.fetchone()
+            if row is not None:
+                existing_id = row[0] if not isinstance(row, sqlite3.Row) else row["finding_id"]
+                seen = (row[1] if not isinstance(row, sqlite3.Row) else row["seen_count"]) + 1
+                # The DOCUMENT is refreshed too, not only the counters. A rediscovery used to
+                # bump seen_count and keep the evidence of sighting number one for ever: a bug
+                # seen thirty-nine times still carried what the scanner observed the first time,
+                # three weeks earlier. That is not a stale detail — it is the whole payload a
+                # remediation ticket is built from, so a probe that learns to explain itself
+                # better can never reach whoever fixes the bug. The dedup KEY is the identity;
+                # the document is the latest observation of it, and the newest one is the
+                # useful one. `first_seen_at` and `seen_count` keep the history.
+                # `doc` stays exactly as first signed — it is the auditor's record, and rewriting
+                # it would break both its signature and the finding's identity. The NEWEST sighting
+                # is kept beside it, signed in its own right.
+                #
+                # `status` is deliberately NOT refreshed either: it is workflow state the corpus
+                # owns (raw → confirmed → fixed), and a scanner rediscovering a bug would reset a
+                # curated status back to "raw" every fifteen minutes.
+                cur.execute(
+                    f"UPDATE findings SET seen_count = {p}, last_seen_at = {p}, scan_id = {p}, "
+                    f"latest_doc = {p}, severity = {p} WHERE dedup_key = {p}",
+                    (seen, now, scan_id, doc, finding.severity, dedup))
+                return {"new": False, "seen_count": seen, "finding_id": existing_id}
+            cur.execute(
+                f"""INSERT INTO findings (finding_id, dedup_key, target, target_kind, probe, category,
+                        severity, outcome, status, title, detail, scanner_pubkey, created_at,
+                        first_seen_at, last_seen_at, seen_count, scan_id, doc)
+                    VALUES ({p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},1,{p},{p})""",
+                (finding.finding_id, dedup, finding.target, finding.target_kind, finding.probe,
+                 finding.category, finding.severity, finding.outcome, finding.status, finding.title,
+                 finding.detail, finding.scanner_pubkey, finding.created_at, now, now, scan_id, doc))
+            return {"new": True, "seen_count": 1, "finding_id": finding.finding_id}
+
+    def verdicts_for(self, finding_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+        """Independent verdicts, keyed by finding id.
+
+        Batched on purpose: the dispatch policy asks about a whole page of findings at once,
+        and a query per finding would make the honest answer the expensive one.
+        """
+        ids = [str(f) for f in finding_ids if f]
+        if not ids:
+            return {}
+        p = self._ph()
+        placeholders = ",".join([p] * len(ids))
+        out: dict[str, list[dict[str, Any]]] = {}
+        with self._conn() as con:
+            cur = con.cursor()
+            cur.execute(
+                f"SELECT finding_id, doc FROM verdicts WHERE finding_id IN ({placeholders}) "
+                f"ORDER BY created_at ASC", tuple(ids))
+            for row in cur.fetchall():
+                fid = row["finding_id"] if isinstance(row, sqlite3.Row) else row[0]
+                raw = row["doc"] if isinstance(row, sqlite3.Row) else row[1]
+                try:
+                    out.setdefault(str(fid), []).append(json.loads(raw))
+                except (TypeError, ValueError):
+                    continue
+        return out
+
+    def record_verdict(self, verdict: Any) -> None:
+        """Persist an independent verifier's verdict. Idempotent per (finding, verifier, verdict)."""
+        d = asdict(verdict) if not isinstance(verdict, dict) else verdict
+        p = self._ph()
+        sql = (f"INSERT INTO verdicts (finding_id, verdict, method, score, verifier_id, "
+               f"verifier_pubkey, created_at, doc) VALUES ({p},{p},{p},{p},{p},{p},{p},{p})")
+        sql += " ON CONFLICT DO NOTHING" if self.backend == "postgres" else ""
+        args = (d.get("finding_id"), d.get("verdict"), d.get("method"), float(d.get("score") or 0),
+                d.get("verifier_id"), d.get("verifier_pubkey"), d.get("created_at") or _now_z(),
+                json.dumps(d, ensure_ascii=False))
+        with self._conn() as con:
+            cur = con.cursor()
+            try:
+                cur.execute(sql, args)
+            except (sqlite3.IntegrityError, Exception) as exc:  # noqa: BLE001
+                if isinstance(exc, sqlite3.IntegrityError):
+                    return  # already recorded — fine
+                if self.backend == "sqlite":
+                    raise
+
+    def set_status(self, finding_id: str, status: str) -> None:
+        p = self._ph()
+        with self._conn() as con:
+            con.cursor().execute(
+                f"UPDATE findings SET status = {p}, last_seen_at = {p} WHERE finding_id = {p}",
+                (status, _now_z(), finding_id))
+
+    # ── security bulletin ───────────────────────────────────────────────────
+    # Storage only. The advisory FORMAT, the disclosure rules and the signing all live in
+    # momus/bulletin.py; the corpus just remembers which number belongs to which bug, because that
+    # mapping is the one thing about a bulletin that must survive a restart.
+    def advisory_for_dedup(self, dedup_key: str) -> dict[str, Any] | None:
+        """The advisory already minted for this BUG identity, if any (else None)."""
+        p = self._ph()
+        with self._conn() as con:
+            cur = con.cursor()
+            cur.execute(f"SELECT advisory_id, year, seq, doc FROM advisories WHERE dedup_key = {p}",
+                        (dedup_key,))
+            row = cur.fetchone()
+            if row is None:
+                return None
+            return {"advisory_id": row[0], "year": int(row[1]), "seq": int(row[2]),
+                    "doc": json.loads(row[3])}
+
+    def reserve_advisory_number(self, dedup_key: str, year: int) -> dict[str, Any]:
+        """Return the number for this bug, minting a new one only if it has none.
+
+        Idempotent per dedup identity: a rediscovery of the same bug gets the SAME number back, which
+        is the entire reason a stable advisory id is keyed on the dedup identity and not on a
+        per-report id. The counter is bumped with an atomic upsert rather than a read-then-write, so
+        two concurrent publishes cannot both be handed the same sequence number.
+        """
+        p = self._ph()
+        with self._conn() as con:
+            cur = con.cursor()
+            cur.execute(f"SELECT advisory_id, year, seq FROM advisories WHERE dedup_key = {p}",
+                        (dedup_key,))
+            row = cur.fetchone()
+            if row is not None:
+                return {"advisory_id": row[0], "year": int(row[1]), "seq": int(row[2]),
+                        "minted": False}
+            cur.execute(
+                f"INSERT INTO advisory_counter (year, last_seq) VALUES ({p}, 1) "
+                f"ON CONFLICT(year) DO UPDATE SET last_seq = advisory_counter.last_seq + 1",
+                (int(year),))
+            cur.execute(f"SELECT last_seq FROM advisory_counter WHERE year = {p}", (int(year),))
+            seq = int(cur.fetchone()[0])
+            return {"advisory_id": "", "year": int(year), "seq": seq, "minted": True}
+
+    def save_advisory(self, *, advisory_id: str, year: int, seq: int, dedup_key: str, status: str,
+                      component: str, severity: str, published: str, modified: str,
+                      doc: dict[str, Any]) -> None:
+        """Insert or update one advisory. Re-publishing the same bug UPDATES its row — an advisory is
+        a living record with a stable number, not an append-only log of near-duplicates."""
+        p = self._ph()
+        with self._conn() as con:
+            con.cursor().execute(
+                f"""INSERT INTO advisories (advisory_id, year, seq, dedup_key, status, component,
+                                            severity, published, modified, doc)
+                    VALUES ({p},{p},{p},{p},{p},{p},{p},{p},{p},{p})
+                    ON CONFLICT(advisory_id) DO UPDATE SET
+                        status = excluded.status, component = excluded.component,
+                        severity = excluded.severity, modified = excluded.modified,
+                        doc = excluded.doc""",
+                (advisory_id, int(year), int(seq), dedup_key, status, component, severity,
+                 published, modified, json.dumps(doc)))
+
+    def get_advisory(self, advisory_id: str) -> dict[str, Any] | None:
+        """The stored UNREDACTED advisory document, or None."""
+        p = self._ph()
+        with self._conn() as con:
+            cur = con.cursor()
+            cur.execute(f"SELECT doc FROM advisories WHERE advisory_id = {p}", (advisory_id,))
+            row = cur.fetchone()
+            return json.loads(row[0]) if row is not None else None
+
+    def list_advisories(self, limit: int = 200, *, status: str | None = None) -> list[dict[str, Any]]:
+        """Every advisory, newest number first. A WITHDRAWN advisory is returned like any other: it
+        stays on the record, because an entry that vanishes makes every other entry unverifiable."""
+        p = self._ph()
+        args: list[Any] = []
+        clause = ""
+        if status:
+            clause = f" WHERE status = {p}"
+            args.append(status)
+        args.append(int(max(1, min(limit, 2000))))
+        with self._conn() as con:
+            cur = con.cursor()
+            cur.execute(f"SELECT doc FROM advisories{clause} ORDER BY year DESC, seq DESC LIMIT {p}",
+                        tuple(args))
+            return [json.loads(r[0]) for r in cur.fetchall()]
+
+    def record_scan(self, report: Any) -> None:
+        p = self._ph()
+        rd = report.to_dict() if hasattr(report, "to_dict") else report
+        sql = (f"INSERT INTO scans (scan_id, started_at, finished_at, targets, provider, counts) "
+               f"VALUES ({p},{p},{p},{p},{p},{p})")
+        sql += " ON CONFLICT DO NOTHING" if self.backend == "postgres" else " ON CONFLICT DO NOTHING"
+        with self._conn() as con:
+            try:
+                con.cursor().execute(sql, (rd["scan_id"], rd["started_at"], rd["finished_at"],
+                                           json.dumps(rd["targets"]), rd.get("provider"),
+                                           json.dumps(rd["counts"])))
+            except sqlite3.IntegrityError:
+                pass
+
+    # ── reads ───────────────────────────────────────────────────────────────
+    @staticmethod
+    def _merged(doc_raw: str, latest_raw: str | None, columns: dict[str, Any]) -> dict[str, Any]:
+        """One finding as every reader should see it: the record, refreshed, plus the columns.
+
+        Extracted because `get()` and `recent()` drifted: `get()` learned to serve the newest
+        sighting and `recent()` kept serving the first, so the very reader that builds a
+        remediation ticket still described what the scanner saw three weeks earlier. Two
+        readers of one table must not disagree about what the table says.
+        """
+        doc = json.loads(doc_raw)
+        if latest_raw:
+            try:
+                latest = json.loads(latest_raw)
+                for field in ("title", "detail", "evidence", "severity", "outcome"):
+                    if latest.get(field) not in (None, "", {}):
+                        doc[field] = latest[field]
+            except (ValueError, TypeError):
+                pass
+        return {**doc, **{k: v for k, v in columns.items() if v is not None}}
+
+    def recent(self, limit: int = 50, *, severity: str | None = None, target: str | None = None,
+               status: str | None = None) -> list[dict[str, Any]]:
+        p = self._ph()
+        where, args = [], []
+        if severity:
+            where.append(f"severity = {p}"); args.append(severity)
+        if target:
+            where.append(f"target = {p}"); args.append(target)
+        if status:
+            where.append(f"status = {p}"); args.append(status)
+        clause = (" WHERE " + " AND ".join(where)) if where else ""
+        args.append(int(max(1, min(limit, 500))))
+        with self._conn() as con:
+            cur = con.cursor()
+            cur.execute(
+                f"SELECT doc, latest_doc, seen_count, first_seen_at, last_seen_at, status, "
+                f"finding_id FROM findings{clause} ORDER BY last_seen_at DESC LIMIT {p}",
+                tuple(args))
+            keys = ("seen_count", "first_seen_at", "last_seen_at", "status", "finding_id")
+            out = []
+            for row in cur.fetchall():
+                if isinstance(row, sqlite3.Row):
+                    doc_raw, latest_raw = row["doc"], row["latest_doc"]
+                    columns = {k: row[k] for k in keys}
+                else:
+                    doc_raw, latest_raw = row[0], row[1]
+                    columns = dict(zip(keys, row[2:]))
+                out.append(self._merged(doc_raw, latest_raw, columns))
+        # Attach the independent verdicts. The dispatch policy has always looked for
+        # `finding["verdicts"]` and preferred a confirmed verdict over a sighting count; the
+        # projection simply never carried them, so that branch could not fire and "the same
+        # probe twice" was the whole gate by accident rather than by decision.
+        by_id = self.verdicts_for([f.get("finding_id") for f in out])
+        for f in out:
+            f["verdicts"] = by_id.get(str(f.get("finding_id")), [])
+        return out
+
+    def get(self, finding_id: str) -> dict[str, Any] | None:
+        """The stored finding, plus what the CORPUS knows about it that the document does not.
+
+        `doc` is the Finding as the scanner built it, so it cannot carry `seen_count`,
+        `last_seen_at` or `status` — those are columns this table maintains across
+        rediscoveries and across an operator's own curation. `set_status` writes the column,
+        and a reader served the document's own "raw" instead, so a finding a human had marked
+        confirmed still read as raw everywhere it mattered. Returning the
+        document alone made both invisible to every caller that reads a finding by id, and the
+        remediation ticket then carried an empty `last_seen_at`, which silently disabled the
+        conductor's regression rule: a real regression was answered with the old "already deployed"
+        job and nothing ran. `recent()` already merges them; this now agrees with it.
+        """
+        p = self._ph()
+        with self._conn() as con:
+            cur = con.cursor()
+            cur.execute(
+                f"SELECT doc, latest_doc, seen_count, first_seen_at, last_seen_at, status "
+                f"FROM findings WHERE finding_id = {p}", (finding_id,))
+            row = cur.fetchone()
+            if row is None:
+                return None
+            keys = ("seen_count", "first_seen_at", "last_seen_at", "status")
+            if isinstance(row, sqlite3.Row):
+                doc_raw, latest_raw = row["doc"], row["latest_doc"]
+                columns = {k: row[k] for k in keys}
+            else:
+                doc_raw, latest_raw = row[0], row[1]
+                columns = dict(zip(keys, row[2:]))
+            merged = self._merged(doc_raw, latest_raw, columns)
+            if merged is not None:
+                # Agree with recent(): a caller reading one finding by id must see the
+                # same independent verdicts as a caller reading the page it sits on.
+                merged["verdicts"] = self.verdicts_for([finding_id]).get(str(finding_id), [])
+            return merged
+
+    def seen_before(self, dedup_key: str) -> int:
+        """How many times this exact bug has been seen (0 = never)."""
+        p = self._ph()
+        with self._conn() as con:
+            cur = con.cursor()
+            cur.execute(f"SELECT seen_count FROM findings WHERE dedup_key = {p}", (dedup_key,))
+            row = cur.fetchone()
+            return int(row[0]) if row else 0
+
+    def stats(self) -> dict[str, Any]:
+        with self._conn() as con:
+            cur = con.cursor()
+            cur.execute("SELECT severity, COUNT(*) FROM findings GROUP BY severity")
+            by_sev = {str(r[0]): int(r[1]) for r in cur.fetchall()}
+            cur.execute("SELECT status, COUNT(*) FROM findings GROUP BY status")
+            by_status = {str(r[0]): int(r[1]) for r in cur.fetchall()}
+            cur.execute("SELECT COUNT(*) FROM findings")
+            total = int(cur.fetchone()[0])
+            cur.execute("SELECT COUNT(*) FROM findings WHERE seen_count > 1")
+            recurring = int(cur.fetchone()[0])
+            cur.execute("SELECT COUNT(*) FROM scans")
+            scans = int(cur.fetchone()[0])
+        return {"backend": self.backend, "total_findings": total, "recurring": recurring,
+                "by_severity": by_sev, "by_status": by_status, "scans": scans}
