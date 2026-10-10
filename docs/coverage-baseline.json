@@ -1,0 +1,224 @@
+{
+  "generatorVersion": "2",
+  "wardenVersion": "0.10.0",
+  "startedAt": "2026-10-10T13:19:42.477077+00:00",
+  "variants": 4230,
+  "attacks": 4194,
+  "blocked": 1620,
+  "recall": 0.3863,
+  "missed": 2574,
+  "errors": 0,
+  "controls": {
+    "evaluated": 36,
+    "falsePositiveRate": 0.0,
+    "falsePositives": 0,
+    "total": 36
+  },
+  "byDimension": {
+    "category": {
+      "concealment": {
+        "blocked": 342,
+        "recall": 0.3958333333333333,
+        "total": 864
+      },
+      "cross_tool": {
+        "blocked": 324,
+        "recall": 0.375,
+        "total": 864
+      },
+      "exfiltration": {
+        "blocked": 369,
+        "recall": 0.4270833333333333,
+        "total": 864
+      },
+      "instruction_to_model": {
+        "blocked": 234,
+        "recall": 0.3170731707317073,
+        "total": 738
+      },
+      "secret_request": {
+        "blocked": 351,
+        "recall": 0.40625,
+        "total": 864
+      }
+    },
+    "encoding": {
+      "base64": {
+        "blocked": 468,
+        "recall": 0.8666666666666667,
+        "total": 540
+      },
+      "fullwidth": {
+        "blocked": 36,
+        "recall": 0.07142857142857142,
+        "total": 504
+      },
+      "fullwidth_zero_width": {
+        "blocked": 504,
+        "recall": 1.0,
+        "total": 504
+      },
+      "homoglyph": {
+        "blocked": 36,
+        "recall": 0.07407407407407407,
+        "total": 486
+      },
+      "html_entities": {
+        "blocked": 0,
+        "recall": 0.0,
+        "total": 540
+      },
+      "plain": {
+        "blocked": 36,
+        "recall": 0.06666666666666667,
+        "total": 540
+      },
+      "unicode_escape": {
+        "blocked": 0,
+        "recall": 0.0,
+        "total": 540
+      },
+      "zero_width": {
+        "blocked": 540,
+        "recall": 1.0,
+        "total": 540
+      }
+    },
+    "intent": {
+      "concealment": {
+        "blocked": 342,
+        "recall": 0.3958333333333333,
+        "total": 864
+      },
+      "cross_tool": {
+        "blocked": 324,
+        "recall": 0.375,
+        "total": 864
+      },
+      "exfiltration": {
+        "blocked": 369,
+        "recall": 0.4270833333333333,
+        "total": 864
+      },
+      "instruction_to_model": {
+        "blocked": 234,
+        "recall": 0.3170731707317073,
+        "total": 738
+      },
+      "secret_request": {
+        "blocked": 351,
+        "recall": 0.40625,
+        "total": 864
+      }
+    },
+    "language": {
+      "de": {
+        "blocked": 270,
+        "recall": 0.375,
+        "total": 720
+      },
+      "en": {
+        "blocked": 369,
+        "recall": 0.5125,
+        "total": 720
+      },
+      "es": {
+        "blocked": 261,
+        "recall": 0.3625,
+        "total": 720
+      },
+      "ja": {
+        "blocked": 225,
+        "recall": 0.33783783783783783,
+        "total": 666
+      },
+      "ru": {
+        "blocked": 270,
+        "recall": 0.38461538461538464,
+        "total": 702
+      },
+      "zh": {
+        "blocked": 225,
+        "recall": 0.33783783783783783,
+        "total": 666
+      }
+    },
+    "paraphrase": {
+      "direct": {
+        "blocked": 819,
+        "recall": 0.3905579399141631,
+        "total": 2097
+      },
+      "indirect": {
+        "blocked": 801,
+        "recall": 0.38197424892703863,
+        "total": 2097
+      }
+    },
+    "placement": {
+      "description": {
+        "blocked": 180,
+        "recall": 0.38626609442060084,
+        "total": 466
+      },
+      "enum": {
+        "blocked": 180,
+        "recall": 0.38626609442060084,
+        "total": 466
+      },
+      "metadata": {
+        "blocked": 180,
+        "recall": 0.38626609442060084,
+        "total": 466
+      },
+      "nested_schema": {
+        "blocked": 180,
+        "recall": 0.38626609442060084,
+        "total": 466
+      },
+      "output_schema": {
+        "blocked": 180,
+        "recall": 0.38626609442060084,
+        "total": 466
+      },
+      "param_default": {
+        "blocked": 180,
+        "recall": 0.38626609442060084,
+        "total": 466
+      },
+      "param_description": {
+        "blocked": 180,
+        "recall": 0.38626609442060084,
+        "total": 466
+      },
+      "title": {
+        "blocked": 180,
+        "recall": 0.38626609442060084,
+        "total": 466
+      },
+      "tool_title": {
+        "blocked": 180,
+        "recall": 0.38626609442060084,
+        "total": 466
+      }
+    }
+  },
+  "evaluator": {
+    "buildDigest": "7fdc14c3add9cccd7551587b7cb3afa2f5137d12255ba5b01aa479590a10ee8a",
+    "policy": {
+      "allowUnknownServers": true,
+      "blockAtSeverity": "high",
+      "pinToolDefs": true,
+      "sensitiveToolPatterns": []
+    },
+    "protocol": 1,
+    "ruleset": {
+      "digest": "sha256-lJuKKKV5mtruN5D+K3X1OK89u6KLXF//oS1NpmhZRuI=",
+      "version": "10"
+    },
+    "version": "0.10.0"
+  },
+  "note": "Synthetic tool-definition gate coverage, not an agent exploitation rate. Model candidates are unreviewed and excluded from recall. Addresses are .invalid; secrets are decoys.",
+  "replayVerified": true,
+  "command": "momus-coverage run --warden ../warden --data-dir data/warden-coverage --fresh 8000"
+}

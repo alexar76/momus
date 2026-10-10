@@ -1,0 +1,16 @@
+# Dedicated sandbox TEST host. Do not install beside a running histor-sandbox listener.
+[Unit]
+Description=MOMUS monthly synthetic package behaviour campaign
+After=docker.service histor-firewall.service
+Requires=docker.service
+[Service]
+Type=oneshot
+User=histor-sandbox
+Group=histor-sandbox
+SupplementaryGroups=docker
+Environment=HISTOR_SANDBOX_STATE=/var/lib/histor-sandbox
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=yes
+ExecStart=/bin/sh -c 'exec /opt/momus/.venv/bin/python -m momus.engine.behaviour_campaign --observer /usr/local/bin/histor-observe --out /var/lib/histor-sandbox/campaigns/$(date -u +%%Y-%%m-%%dT%%H-%%M-%%S)'
+TimeoutStartSec=6h
