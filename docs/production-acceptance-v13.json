@@ -1,0 +1,119 @@
+{
+  "type": "mcp.production-acceptance/v1",
+  "date": "2026-10-10",
+  "status": "deployed",
+  "tests": {
+    "histor": {
+      "passed": 445,
+      "backends": [
+        "sqlite",
+        "postgresql"
+      ],
+      "ruff": "passed"
+    },
+    "warden": {
+      "passed": 426,
+      "files": 33
+    },
+    "themis": {
+      "passed": 182,
+      "coveragePercent": 98.57
+    },
+    "momus": {
+      "passed": 498,
+      "skipped": 1
+    },
+    "observerAfterFormatting": {
+      "passed": 10
+    }
+  },
+  "behaviour": {
+    "type": "momus.behaviour-campaign/v1",
+    "seed": "2026-10",
+    "cases": 72,
+    "corpusSha256": "914351c747d353553619e24f6dddcb04bb9e1887b838362ebdbdba9d1553f7c4",
+    "status": "complete",
+    "executed": 72,
+    "missed": 0,
+    "falsePositives": 0,
+    "incomplete": 0,
+    "host": "competing-lab",
+    "runsc": "release-20261005.0",
+    "maliciousCases": 54,
+    "benignCases": 18,
+    "acceptedObserverSha256": "d7a57b978c61711191cabb244301b039d67a5147adf162847e891946c54ccbee",
+    "deployedObserverSha256": "407b57c8f8166559852ea175ef1b9ccfb5b2a0203c16f21b250beea7391d7144",
+    "postAcceptanceChange": "CI formatting only: import order, expanded one-line statements, equivalent format strings; focused regression suite passed",
+    "sinkSha256": "af3849bfa4cc99ffc8d6bbc21c401ce5487dfa1f0cd49df331cc2c95576f9fbb",
+    "firewallSha256": "7f321cc110f8d11c0c6a22649f30c62d6b23a902ab54a411ed17f896dc565670",
+    "rawResults": "../data/behaviour-v13-server-2026-10/decisions.jsonl"
+  },
+  "isolation": {
+    "trapHTTP": true,
+    "trapSMTP": true,
+    "hostSSHBlocked": true,
+    "observerAPIPortBlocked": true,
+    "externalDocumentationAddressBlocked": true,
+    "publicWebMailPortsUnchanged": true
+  },
+  "production": {
+    "histor": {
+      "host": "admin-vps",
+      "image": "histor:v13-20261010",
+      "imageId": "sha256:92c284223d6bdf25cb6e931a07e57535154d041f9ecc4a47cd870494410dfc04",
+      "schema": 8,
+      "previousSchema": 6,
+      "warden": "0.13.0",
+      "wardenBuildDigest": "40750f92ea57aa8e59e5c819853f7110c38e166c7ea27214a40beb5ed8314f61",
+      "issuerUnchanged": true,
+      "envUnchanged": true,
+      "treeSizeBefore": 395516,
+      "treeSizeAfterSwitch": 395516,
+      "crawlRestarted": true,
+      "backup": "/var/backups/histor-v13-20261010",
+      "rollbackImage": "histor:rollback-v13-compatible",
+      "securityEventsHTTP": 200,
+      "feedHTTP": 200,
+      "healthAtFinalCheck": {
+        "ok": true,
+        "crawl_running": true,
+        "tree_size": 395516,
+        "last_crawl_error": "interrupted: the process restarted before the crawl finished"
+      }
+    },
+    "observer": {
+      "host": "competing-lab",
+      "version": "3",
+      "service": "histor-sandbox",
+      "firewallTimer": "active",
+      "pinnedHistorConnection": true,
+      "backup": "/var/backups/histor-observer-v13-20261010"
+    },
+    "themis": {
+      "host": "factory-vps",
+      "image": "themis:v13-20261010",
+      "policy": "themis-mcp/2",
+      "issuerUnchanged": true,
+      "publicVerdictHTTP": 200,
+      "publicVerdictSigned": true,
+      "rollbackContainer": "themis-before-v13-20261010",
+      "imageId": "sha256:96e1729612f58abab24bf4a658d4c64d0b5f832efa6e7722251c00237d9cf4e8"
+    },
+    "momus": {
+      "host": "admin-vps",
+      "image": "momus:v13-20261010",
+      "generator": "3",
+      "stateVolumesPreserved": true,
+      "publicHealthHTTP": 200,
+      "rollbackContainer": "momus-backend-before-v13-20261010",
+      "imageId": "sha256:128565f5255d9a63e04b67d9f90518e0a9335448b88f9ebb048daac2e3ae53be"
+    }
+  },
+  "limitations": [
+    "This is a 72-case synthetic behaviour campaign, not a 45k-package census.",
+    "WARDEN semantic coverage was not rerun: deployed JS digest matches the previously measured 8606-case build.",
+    "No npm publication was performed.",
+    "No webhook recipients or monthly behaviour timer were activated; the monthly template requires a dedicated test host with free trap listeners.",
+    "HISTOR retains the previous interrupted-crawl marker until the resumed crawl finishes; it must not be erased to make health appear clean."
+  ]
+}

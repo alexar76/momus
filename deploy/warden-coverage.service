@@ -1,0 +1,23 @@
+[Unit]
+Description=MOMUS continuous local WARDEN coverage
+After=network.target
+
+[Service]
+Type=simple
+User=momus
+WorkingDirectory=/opt/aicom/momus
+EnvironmentFile=-/etc/momus/coverage.env
+StateDirectory=momus-coverage
+# Add --llm in an override to use MOMUS_LLM_* from the environment file.
+ExecStart=/opt/aicom/momus/.venv/bin/python -m momus.engine.coverage_campaign run --warden /opt/aicom/warden --data-dir /var/lib/momus-coverage --rounds 0 --interval 3600
+Restart=on-failure
+RestartSec=30
+TimeoutStopSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

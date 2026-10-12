@@ -1,0 +1,15 @@
+[Unit]
+Description=MOMUS full WARDEN corpus and live gVisor behaviour acceptance
+After=network-online.target docker.service momus-quality.service
+Requires=docker.service
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/momus-quality/quality-launch.py --full
+TimeoutStartSec=8h
+UMask=0077
+Nice=10
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/momus-quality
