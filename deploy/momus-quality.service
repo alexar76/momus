@@ -1,0 +1,17 @@
+[Unit]
+Description=MOMUS live WARDEN quality gate and adversarial discovery
+After=network-online.target docker.service
+Requires=docker.service
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/momus-quality/quality-launch.py
+TimeoutStartSec=8h
+UMask=0077
+Nice=10
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/momus-quality
+[Install]
+WantedBy=multi-user.target

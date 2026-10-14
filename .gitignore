@@ -1,0 +1,16 @@
+data/
+*.key
+*_signing_key
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+coverage/
+htmlcov/
+frontend/node_modules/
+frontend/dist/
+*.egg-info/
+dist/
+build/
+.DS_Store

@@ -1,0 +1,49 @@
+{
+  "missing_trace": {
+    "startup": {}
+  },
+  "recipient_default": "recipient@real-looking.example",
+  "required_argument_after_limit": {
+    "count": 20,
+    "hasRequiredRecipient": false
+  },
+  "install_script_without_entry": {
+    "status": "no-entry-point",
+    "scriptsCalled": false
+  },
+  "themis_missing_checks": {
+    "decision": "approve",
+    "reasons": []
+  },
+  "themis_failed_latest_read": {
+    "decision": "approve",
+    "reasons": [
+      {
+        "code": "LAST_READ_FAILED",
+        "severity": "note",
+        "detail": "HISTOR's latest attempt produced no tool set (timeout); evidence is from its last good read"
+      }
+    ]
+  },
+  "themis_unexpected_call_network": {
+    "decision": "approve",
+    "reasons": []
+  },
+  "pypi_attestation_503": {
+    "version": "2",
+    "provenance": false,
+    "publisher": null,
+    "installScripts": [],
+    "previousVersion": "1",
+    "flags": [
+      "provenance-lost"
+    ]
+  },
+  "warden": {
+    "resultMiddle": {
+      "characters": 524340,
+      "flagged": false
+    },
+    "russianFileReader": []
+  }
+}

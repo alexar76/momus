@@ -1,0 +1,118 @@
+{
+  "missing_trace": {
+    "startup": {
+      "complete": false,
+      "incompleteReasons": [
+        "source-ip-missing",
+        "trace-empty",
+        "trace-missing"
+      ]
+    }
+  },
+  "recipient_default": "canary-fixture@histor-trap.invalid",
+  "required_argument_after_limit": {
+    "count": 20,
+    "hasRequiredRecipient": true
+  },
+  "install_script_without_entry": {
+    "status": "no-entry-point",
+    "scriptsCalled": true
+  },
+  "themis_missing_checks": {
+    "decision": "unknown",
+    "reasons": [
+      {
+        "code": "STALE_CHECK",
+        "severity": "unknown",
+        "detail": "signed check is missing, stale or future-dated"
+      },
+      {
+        "code": "NOT_OBSERVED",
+        "severity": "unknown",
+        "detail": "HISTOR has not read its tools"
+      }
+    ]
+  },
+  "themis_failed_latest_read": {
+    "decision": "unknown",
+    "reasons": [
+      {
+        "code": "STALE_CHECK",
+        "severity": "unknown",
+        "detail": "signed check is missing, stale or future-dated"
+      },
+      {
+        "code": "NOT_OBSERVED",
+        "severity": "unknown",
+        "detail": "HISTOR has not read its tools"
+      }
+    ]
+  },
+  "themis_unexpected_call_network": {
+    "decision": "review",
+    "reasons": [
+      {
+        "code": "CALL_NETWORK",
+        "severity": "review",
+        "detail": "tool calls attempted network access; destinations and payloads require review"
+      },
+      {
+        "code": "STALE_CHECK",
+        "severity": "unknown",
+        "detail": "signed check is missing, stale or future-dated"
+      },
+      {
+        "code": "NOT_OBSERVED",
+        "severity": "unknown",
+        "detail": "HISTOR has not read its tools"
+      }
+    ]
+  },
+  "pypi_attestation_503": {
+    "version": "2",
+    "provenance": null,
+    "publisher": null,
+    "installScripts": [],
+    "provenanceVerified": null,
+    "metadataComplete": false,
+    "previousVersion": "1",
+    "flags": []
+  },
+  "warden": {
+    "resultMiddle": {
+      "characters": 524340,
+      "flagged": true
+    },
+    "russianFileReader": [
+      {
+        "client": "fixture",
+        "certainty": "possible",
+        "unknown": [
+          {
+            "server": "fixture",
+            "tool": "прочитать_файл"
+          }
+        ],
+        "private": [
+          {
+            "server": "fixture",
+            "tool": "прочитать_файл"
+          }
+        ],
+        "untrusted": [
+          {
+            "server": "fixture",
+            "tool": "прочитать_файл"
+          }
+        ],
+        "outbound": [
+          {
+            "server": "fixture",
+            "tool": "прочитать_файл"
+          }
+        ],
+        "servers": 1
+      }
+    ]
+  }
+}

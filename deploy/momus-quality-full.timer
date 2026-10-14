@@ -1,0 +1,8 @@
+[Unit]
+Description=Monthly full semantic and gVisor behaviour acceptance
+[Timer]
+OnCalendar=*-*-01 05:00:00 UTC
+RandomizedDelaySec=10m
+Persistent=true
+[Install]
+WantedBy=timers.target

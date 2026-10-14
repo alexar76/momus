@@ -1,0 +1,8 @@
+[Unit]
+Description=Run MOMUS synthetic behaviour campaign monthly on a dedicated sandbox test host
+[Timer]
+OnCalendar=*-*-01 05:00:00 UTC
+Persistent=true
+RandomizedDelaySec=15m
+[Install]
+WantedBy=timers.target

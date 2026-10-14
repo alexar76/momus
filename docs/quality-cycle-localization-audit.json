@@ -1,0 +1,83 @@
+{
+  "date": "2026-10-10",
+  "scope": "WARDEN native quality-cycle documentation, not a whole-repository or native-speaker audit",
+  "glossary": "docs/localization-glossary.md",
+  "locales": {
+    "en": {
+      "diagrams": 2,
+      "sameProcessGraph": true,
+      "identifiersAndNumbers": true,
+      "localLinks": true,
+      "glossaryTerms": [
+        "quality cycle",
+        "shared node agent",
+        "sealed holdout",
+        "signed quality receipt",
+        "review queue",
+        "false positive"
+      ]
+    },
+    "ru": {
+      "diagrams": 2,
+      "sameProcessGraph": true,
+      "identifiersAndNumbers": true,
+      "localLinks": true,
+      "glossaryTerms": [
+        "цикл контроля качества",
+        "общий нод-агент",
+        "закрытый отложенный набор",
+        "подписанная квитанция качества",
+        "очередь проверки",
+        "ложное срабатывание"
+      ]
+    },
+    "es": {
+      "diagrams": 2,
+      "sameProcessGraph": true,
+      "identifiersAndNumbers": true,
+      "localLinks": true,
+      "glossaryTerms": [
+        "ciclo de control de calidad",
+        "agente de nodo compartido",
+        "conjunto reservado cerrado",
+        "recibo de calidad firmado",
+        "cola de revisión",
+        "falso positivo"
+      ]
+    },
+    "fr": {
+      "diagrams": 2,
+      "sameProcessGraph": true,
+      "identifiersAndNumbers": true,
+      "localLinks": true,
+      "glossaryTerms": [
+        "cycle de contrôle qualité",
+        "agent de nœud partagé",
+        "jeu réservé fermé",
+        "reçu de qualité signé",
+        "file de relecture",
+        "faux positif"
+      ]
+    },
+    "zh": {
+      "diagrams": 2,
+      "sameProcessGraph": true,
+      "identifiersAndNumbers": true,
+      "localLinks": true,
+      "glossaryTerms": [
+        "质量检查周期",
+        "共享节点智能体",
+        "封存留出集",
+        "已签名的质量收据",
+        "复核队列",
+        "误报"
+      ]
+    }
+  },
+  "readmeLinks": 20,
+  "rendering": {
+    "tool": "@mermaid-js/mermaid-cli",
+    "renderedSvg": 10,
+    "success": true
+  }
+}
