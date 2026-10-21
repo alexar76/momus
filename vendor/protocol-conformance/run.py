@@ -64,6 +64,28 @@ def skip(name: str, why: str) -> None:
     print(f"  {YELLOW}SKIP{RESET}  {name}  {DIM}{why}{RESET}")
 
 
+SIGNATURE_OBJECT_SHAPE = '{"algorithm": "ed25519", "public_key": "<base64>", "value": "<base64>"}'
+_JSON_TYPE_NAMES = {str: "a string", list: "an array", bool: "a boolean", int: "a number",
+                    float: "a number", type(None): "null"}
+
+
+def signature_shape_problem(sig) -> str:
+    """Why `sig` is not a §7.3.1 signature OBJECT, or "" when it is one.
+
+    Both independent implementations that knocked on modelmarket.dev in October 2026 published
+    the base64 signature as a bare string, and this runner answered them with
+    "'str' object has no attribute 'get'". The shape is the implementer's to fix, so say how.
+    """
+    if isinstance(sig, dict):
+        value = sig.get("value")
+        if not isinstance(value, str) or not value.strip():
+            return 'the signature object has no "value" string (§7.3.1)'
+        return ""
+    kind = _JSON_TYPE_NAMES.get(type(sig), "not an object")
+    return (f"signature is {kind}, not an object (§7.3.1): publish {SIGNATURE_OBJECT_SHAPE}, "
+            f"with the base64 Ed25519 signature in value")
+
+
 # ── crypto ──────────────────────────────────────────────────────────
 
 def _verifier():
@@ -247,7 +269,19 @@ def check_negative_vectors(verify) -> None:
         if not kind:
             skip(path.name, "no canonical known for this vector kind")
             continue
-        sig = (doc.get("signature") or {}).get("value", "")
+        raw_sig = doc.get("signature")
+        sig = raw_sig.get("value", "") if isinstance(raw_sig, dict) else ""
+
+        if expect.get("reason") == "signature-not-an-object":
+            # The bytes are right on purpose: the vector is broken if they would not verify,
+            # and what must refuse it is the shape check, not a failed signature.
+            bytes_valid = isinstance(raw_sig, str) and verify(
+                TEST_PUBKEY_B64, CANONICALS[kind](doc), raw_sig)
+            shape = signature_shape_problem(raw_sig)
+            ok = bytes_valid and bool(shape)
+            record(ok, path.name, "rejected: valid bytes, not a §7.3.1 object" if ok else
+                   "vector is not exercising the shape rule")
+            continue
 
         if expect.get("reason") == "version-under-covers-content":
             # The signature is genuinely valid over what it covers — that is the point. What
@@ -378,10 +412,18 @@ def check_live_hub(base: str) -> None:
     murl = wk.get("manifest_url") or f"{base}/ai-market/v2/manifest"
     try:
         status, manifest = fetch(murl)
-        sig = (manifest.get("signature") or {})
+        if not isinstance(manifest, dict):
+            record(False, "GET manifest", "the manifest is not a JSON object")
+            return
+        raw_sig = manifest.get("signature")
+        shape = signature_shape_problem(raw_sig) if raw_sig else ""
+        sig = raw_sig if isinstance(raw_sig, dict) else {}
         pub = sig.get("public_key") or wk.get("signer_public_key") or ""
         verify = _verifier()
-        if not verify:
+        if shape:
+            # A shape error needs no cryptography to see, so it is reported even without it.
+            record(False, "live manifest signature is a §7.3.1 object", shape)
+        elif not verify:
             skip("live manifest signature", "pip install cryptography>=44")
         elif not sig.get("value"):
             record(False, "live manifest is signed", "no signature block")
