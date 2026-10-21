@@ -34,5 +34,14 @@ jobs:
           else
             pip install -e ".[dev]"
           fi
+      - name: Fetch SKOPOS, WARDEN and HISTOR beside the checkout (the quality-cycle tests read them)
+        # SKOPOS signs the deploy orders; WARDEN and HISTOR must ship the same release gate and key.
+        run: |
+          git clone --no-checkout https://github.com/alexar76/skopos.git "$GITHUB_WORKSPACE/../skopos"
+          git -C "$GITHUB_WORKSPACE/../skopos" checkout c51fe5aa1a37db139fc7fc8774dd799db42bf00d  # alexar76/skopos main, 2026-10-16
+          git clone --no-checkout https://github.com/alexar76/warden.git "$GITHUB_WORKSPACE/../warden"
+          git -C "$GITHUB_WORKSPACE/../warden" checkout eb6aba68866e00653febb7fb03b8c702c3f9bd2e  # alexar76/warden main, 2026-10-20
+          git clone --no-checkout https://github.com/alexar76/histor.git "$GITHUB_WORKSPACE/../histor"
+          git -C "$GITHUB_WORKSPACE/../histor" checkout 56c8b53d5ede0057895b34536a9dd831d7acfd31  # alexar76/histor main, 2026-10-21
       - name: Pytest
         run: pytest -q --tb=short

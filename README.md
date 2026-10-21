@@ -9,7 +9,7 @@
 
 <!-- aicom-readme-badges -->
 <p align="center">
-  <a href="https://github.com/alexar76/momus/actions/workflows/ci.yml"><img src="https://raw.githubusercontent.com/alexar76/momus/refs/heads/main/docs/badges/ci.svg" alt="CI" /></a>
+  <a href="https://github.com/alexar76/momus/actions/workflows/ci.yml"><img src="https://github.com/alexar76/momus/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="https://momus.modelmarket.dev/"><img src="https://raw.githubusercontent.com/alexar76/momus/refs/heads/main/docs/badges/live.svg" alt="Live panel" /></a>
   <a href="https://alexar76.github.io/momus/"><img src="https://raw.githubusercontent.com/alexar76/momus/refs/heads/main/docs/badges/landing.svg" alt="Landing" /></a>
   <a href="https://pypi.org/project/aimarket-momus/"><img src="https://raw.githubusercontent.com/alexar76/momus/refs/heads/main/docs/badges/pypi.svg" alt="PyPI" /></a>
