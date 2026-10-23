@@ -2,6 +2,8 @@
 
 > 🌐 [English](quality-cycle.md) · [Русский](quality-cycle.ru.md) · [Español](quality-cycle.es.md) · [Français](quality-cycle.fr.md) · **中文**
 
+HISTOR 的 rebind 成功后，`scripts/deploy_histor.sh` 还会将 `histor:warden-remediation-base` 固定为当前正在运行的同一个镜像。这样，后续 WARDEN 构建会保留 HISTOR 当前的应用代码和迁移。rebind 失败时不会更新基础镜像。
+
 术语遵循[统一 EN/RU/ES/FR/ZH 术语表](../../docs/localization-glossary.md)。产品名称、路径、字段和签名文档类型保留原文。
 
 ## 流程与职责

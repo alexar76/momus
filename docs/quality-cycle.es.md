@@ -2,6 +2,8 @@
 
 > 🌐 [English](quality-cycle.md) · [Русский](quality-cycle.ru.md) · **Español** · [Français](quality-cycle.fr.md) · [中文](quality-cycle.zh.md)
 
+Tras un rebind correcto de HISTOR, `scripts/deploy_histor.sh` también fija `histor:warden-remediation-base` a esa imagen exacta en ejecución. Así, las futuras compilaciones de WARDEN conservan la aplicación y las migraciones actuales de HISTOR. Un rebind fallido no cambia la imagen base.
+
 Terminología: [glosario canónico EN/RU/ES/FR/ZH](../../docs/localization-glossary.md).
 Los productos, rutas, campos y tipos de documentos firmados conservan su escritura original.
 
