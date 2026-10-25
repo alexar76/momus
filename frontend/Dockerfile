@@ -1,9 +1,10 @@
+# Node security baseline: 22.23.4 (2026-10-21 security release).
 # MOMUS frontend — the landing + live panel (built static, served by nginx).
 # Build from momus/frontend/:  docker build -t momus-frontend .
 # In the deployed topology the outer TLS edge routes API paths (/health, /scan,
 # /findings, /intel, /providers, /selfaudit) to the MOMUS backend and everything
 # else here; this container only serves the static SPA on port 80.
-FROM node:22-alpine AS build
+FROM node:22.23.4-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm install
