@@ -45,7 +45,7 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from oracle_core.signing import Signer
 
@@ -58,6 +58,9 @@ from momus.findings import (
     finding_digest,
     verify_document_signature,
 )
+
+if TYPE_CHECKING:
+    from momus.settlement import SettlementBackend
 
 
 # Ed25519 small-order / low-order point encodings (the libsodium blacklist). A "verifier key"

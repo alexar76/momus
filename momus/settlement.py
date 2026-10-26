@@ -62,7 +62,10 @@ import time
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from momus.vault import UniVault
 
 
 class SettlementMode(str, Enum):
