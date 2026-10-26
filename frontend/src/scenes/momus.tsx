@@ -710,7 +710,7 @@ export default function Scene({ onVerdict, reduced = false }: MomusSceneProps) {
         const sx = i === 0 || i === 3 ? -1 : 1;
         const sy = i < 2 ? 1 : -1;
         return (
-          <group key={i} ref={(el) => (bracketRefs.current[i] = el)}>
+          <group key={i} ref={(el) => { bracketRefs.current[i] = el; }}>
             <mesh position={[(sx * 0.62) / 2, 0, 0]}>
               <boxGeometry args={[0.62, 0.045, 0.045]} />
               <meshBasicMaterial
@@ -740,10 +740,10 @@ export default function Scene({ onVerdict, reduced = false }: MomusSceneProps) {
       {/* ===================== TARGET ORBS + FLASH RINGS ===================== */}
       {Array.from({ length: N_ORBS }, (_, i) => (
         <group key={i}>
-          <mesh ref={(el) => (orbRefs.current[i] = el)}>
+          <mesh ref={(el) => { orbRefs.current[i] = el; }}>
             <icosahedronGeometry args={[1, 2]} />
             <meshStandardMaterial
-              ref={(el) => (orbMats.current[i] = el)}
+              ref={(el) => { orbMats.current[i] = el; }}
               color={IDLE}
               emissive={IDLE}
               emissiveIntensity={0.6}
@@ -752,10 +752,10 @@ export default function Scene({ onVerdict, reduced = false }: MomusSceneProps) {
               toneMapped={false}
             />
           </mesh>
-          <mesh ref={(el) => (ringRefs.current[i] = el)}>
+          <mesh ref={(el) => { ringRefs.current[i] = el; }}>
             <torusGeometry args={[1, 0.045, 6, 40]} />
             <meshBasicMaterial
-              ref={(el) => (ringMats.current[i] = el)}
+              ref={(el) => { ringMats.current[i] = el; }}
               color={GREEN}
               toneMapped={false}
               transparent
