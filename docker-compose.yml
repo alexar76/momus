@@ -79,6 +79,10 @@ services:
       # — the Ed25519 identity is untouched, which is what stops a redeploy from
       # republishing MOMUS under a new key.
       ORACLE_PQC: ${ORACLE_PQC:-1}
+      # Whose X-Real-IP / X-Forwarded-For count: momus-frontend, whose nginx passes the host nginx's
+      # X-Real-IP on, and the host nginx through the docker gateway. Not every private address: a
+      # neighbour on the network would name itself (Vulnetix GCVE-110-VULN-PYPI-2026-000637).
+      ORACLE_TRUSTED_PROXIES: ${ORACLE_TRUSTED_PROXIES:-127.0.0.1/32,::1/128,momus-frontend,gateway}
       MOMUS_DATA_DIR: /data
     volumes:
       - momus-scanner-keys:/data
@@ -102,6 +106,9 @@ services:
       TREASURY_KEY_PATH: /data/treasury_signing_key
       TREASURY_LEDGER_PATH: /data/bounty_ledger.jsonl
       TREASURY_CORS_ORIGINS: ${TREASURY_CORS_ORIGINS:-*}
+      # Whose X-Real-IP / X-Forwarded-For count: the host nginx, through the docker gateway
+      # (Vulnetix GCVE-110-VULN-PYPI-2026-000637).
+      ORACLE_TRUSTED_PROXIES: ${TREASURY_TRUSTED_PROXIES:-127.0.0.1/32,::1/128,gateway}
       MOMUS_EXTERNAL_VERIFIERS: ${MOMUS_EXTERNAL_VERIFIERS:-}
       AIFACTORY_PROD: ${AIFACTORY_PROD:-1}
       AIFACTORY_CRYPTO_ENABLED: ${AIFACTORY_CRYPTO_ENABLED:-0}
