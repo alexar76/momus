@@ -4,7 +4,7 @@
 
 После успешного rebind HISTOR скрипт `scripts/deploy_histor.sh` также привязывает `histor:warden-remediation-base` к этому точному работающему образу. Следующие сборки WARDEN сохраняют актуальные код и миграции HISTOR. Неуспешный rebind не меняет базовый образ.
 
-Термины сверены с [общим глоссарием EN/RU/ES/FR/ZH](../../docs/localization-glossary.md).
+Термины сверены с [общим глоссарием EN/RU/ES/FR/ZH](https://github.com/alexar76/aicom/blob/main/docs/localization-glossary.md).
 Названия продуктов, пути, поля и типы подписанных документов сохраняют исходное написание.
 
 ## Процесс и ответственность

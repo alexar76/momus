@@ -4,7 +4,7 @@
 
 Après un rebind réussi de HISTOR, `scripts/deploy_histor.sh` fixe aussi `histor:warden-remediation-base` à cette image exacte en cours d’exécution. Les futures compilations de WARDEN préservent ainsi l’application et les migrations actuelles de HISTOR. Un rebind échoué ne modifie pas l’image de base.
 
-Terminologie : [glossaire canonique EN/RU/ES/FR/ZH](../../docs/localization-glossary.md).
+Terminologie : [glossaire canonique EN/RU/ES/FR/ZH](https://github.com/alexar76/aicom/blob/main/docs/localization-glossary.md).
 Les noms de produits, chemins, champs et types de documents signés gardent leur graphie originale.
 
 ## Processus et responsabilités
