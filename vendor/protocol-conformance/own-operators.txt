@@ -1,0 +1,14 @@
+# Hosts operated by this project or by people working with it — THE LIVE LIST. Committed on purpose.
+#
+# interop.py counts a peer, a witness or an implementation as "outside" only when its host is
+# NOT covered by a line here. A host matches a line when it equals it or ends with "." + it.
+# Adding a host here can only LOWER the outside counts; that is the safe direction, and a change
+# to this file shows up in a diff.
+#
+# Rationale per line:
+modelmarket.dev          # the reference hub, its satellites, oracles, HISTOR, THEMIS, SKOPOS, …
+magic-ai-factory.com     # the factory's own market
+attestedmemory.net       # Attested — a sibling ecosystem, deployed and operated by us
+independentai.network    # Independent — a standard hub on a separate server, deployed by us
+# Witnesses we run ourselves (HISTOR's own witness key) are matched by name, not host:
+histor.modelmarket.dev/witness
