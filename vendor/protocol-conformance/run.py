@@ -372,6 +372,36 @@ def check_live_hub(base: str) -> None:
     record(bool(wk.get("manifest_url")), "well-known declares manifest_url",
            str(wk.get("manifest_url", ""))[:60])
 
+    # The Internet-Draft's names (ietf/): the same document under
+    # /.well-known/agent-marketplace with `catalogue_url` and `signature_profile`, served
+    # beside the legacy path. A hub that predates the drafts serves only the legacy path;
+    # that is a skip, not a failure — the drafts are proposals, the legacy path the contract.
+    try:
+        d_status, draft = fetch(f"{base}/.well-known/agent-marketplace")
+    except Exception as exc:
+        d_status, draft = 0, {}
+        skip("GET /.well-known/agent-marketplace", str(exc)[:80])
+    if d_status == 200 and isinstance(draft, dict):
+        record(True, "GET /.well-known/agent-marketplace (draft name)", "HTTP 200")
+        record(bool(draft.get("catalogue_url")) and draft.get("catalogue_url") == wk.get("manifest_url"),
+               "draft catalogue_url equals legacy manifest_url",
+               str(draft.get("catalogue_url", ""))[:60])
+        record(draft.get("signer_public_key") == wk.get("signer_public_key"),
+               "draft and legacy documents advertise one signer key")
+        record(draft.get("signature_profile") == "ed25519-pipe-2",
+               "draft names its signature profile", str(draft.get("signature_profile")))
+        d_peers = draft.get("peers")
+        record(isinstance(d_peers, list) and all(isinstance(p, str) for p in d_peers),
+               "draft peers are discovery-document URIs")
+        try:
+            req = urllib.request.Request(f"{base}/.well-known/agent-marketplace", method="HEAD")
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                record(resp.status == 200, "HEAD /.well-known/agent-marketplace", f"HTTP {resp.status}")
+        except Exception as exc:
+            record(False, "HEAD /.well-known/agent-marketplace", str(exc)[:80])
+    elif d_status:
+        skip("GET /.well-known/agent-marketplace", f"HTTP {d_status}: hub serves only the legacy name")
+
     # §2.4(5): a pending peer must never be republished to the network.
     peers = wk.get("peers")
     if isinstance(peers, list):
