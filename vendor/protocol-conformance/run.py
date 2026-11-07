@@ -18,11 +18,19 @@ from __future__ import annotations
 import argparse
 import base64
 import hashlib
+import importlib.util
 import json
 import pathlib
 import sys
 import urllib.error
-import urllib.request
+
+# Loaded by file so this runner also works when imported from an unrelated cwd
+# (interop and MOMUS use importlib rather than installing a package).
+_transport_spec = importlib.util.spec_from_file_location(
+    "aimarket_conformance_safe_http", pathlib.Path(__file__).with_name("safe_http.py"))
+safe_http = importlib.util.module_from_spec(_transport_spec)
+assert _transport_spec.loader is not None
+_transport_spec.loader.exec_module(safe_http)
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 VECTORS = ROOT / "test-vectors"
@@ -346,14 +354,15 @@ def check_negative_vectors(verify) -> None:
 
 # ── live hub checks ─────────────────────────────────────────────────
 
+LIVE_HEADERS = {
+    "Accept": "application/json",
+    "User-Agent": "AIMarketConformance/1.0",
+    "X-AIMarket-Crawler": "https://conformance.invalid",
+}
+
+
 def fetch(url: str, timeout: float = 15.0):
-    req = urllib.request.Request(url, headers={
-        "Accept": "application/json",
-        "User-Agent": "AIMarketConformance/1.0",
-        "X-AIMarket-Crawler": "https://conformance.invalid",
-    })
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return resp.status, json.loads(resp.read().decode("utf-8"))
+    return safe_http.fetch_json(url, timeout=timeout, headers=LIVE_HEADERS)
 
 
 def check_live_hub(base: str) -> None:
@@ -363,14 +372,14 @@ def check_live_hub(base: str) -> None:
     try:
         status, wk = fetch(f"{base}/.well-known/ai-market.json")
     except Exception as exc:
-        record(False, "GET /.well-known/ai-market.json", str(exc)[:80])
+        record(False, "GET /.well-known/ai-market.json", safe_http.public_error(exc))
         return
     record(status == 200, "GET /.well-known/ai-market.json", f"HTTP {status}")
 
     record(isinstance(wk.get("protocol_versions"), list) and wk.get("protocol_versions"),
-           "well-known declares protocol_versions", str(wk.get("protocol_versions")))
+           "well-known declares protocol_versions")
     record(bool(wk.get("manifest_url")), "well-known declares manifest_url",
-           str(wk.get("manifest_url", ""))[:60])
+           "present" if wk.get("manifest_url") else "missing")
 
     # The Internet-Draft's names (ietf/): the same document under
     # /.well-known/agent-marketplace with `catalogue_url` and `signature_profile`, served
@@ -380,25 +389,24 @@ def check_live_hub(base: str) -> None:
         d_status, draft = fetch(f"{base}/.well-known/agent-marketplace")
     except Exception as exc:
         d_status, draft = 0, {}
-        skip("GET /.well-known/agent-marketplace", str(exc)[:80])
+        skip("GET /.well-known/agent-marketplace", safe_http.public_error(exc))
     if d_status == 200 and isinstance(draft, dict):
         record(True, "GET /.well-known/agent-marketplace (draft name)", "HTTP 200")
         record(bool(draft.get("catalogue_url")) and draft.get("catalogue_url") == wk.get("manifest_url"),
-               "draft catalogue_url equals legacy manifest_url",
-               str(draft.get("catalogue_url", ""))[:60])
+               "draft catalogue_url equals legacy manifest_url")
         record(draft.get("signer_public_key") == wk.get("signer_public_key"),
                "draft and legacy documents advertise one signer key")
         record(draft.get("signature_profile") == "ed25519-pipe-2",
-               "draft names its signature profile", str(draft.get("signature_profile")))
+               "draft names its signature profile")
         d_peers = draft.get("peers")
         record(isinstance(d_peers, list) and all(isinstance(p, str) for p in d_peers),
                "draft peers are discovery-document URIs")
         try:
-            req = urllib.request.Request(f"{base}/.well-known/agent-marketplace", method="HEAD")
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                record(resp.status == 200, "HEAD /.well-known/agent-marketplace", f"HTTP {resp.status}")
+            head_status, _body, _headers = safe_http.request(
+                f"{base}/.well-known/agent-marketplace", method="HEAD", headers=LIVE_HEADERS)
+            record(head_status == 200, "HEAD /.well-known/agent-marketplace", f"HTTP {head_status}")
         except Exception as exc:
-            record(False, "HEAD /.well-known/agent-marketplace", str(exc)[:80])
+            record(False, "HEAD /.well-known/agent-marketplace", safe_http.public_error(exc))
     elif d_status:
         skip("GET /.well-known/agent-marketplace", f"HTTP {d_status}: hub serves only the legacy name")
 
@@ -426,21 +434,22 @@ def check_live_hub(base: str) -> None:
             else:
                 skip("§2.4 pending queue", "hub predates the admission model")
     except Exception as exc:
-        record(False, "GET /ai-market/v2/federation/peers", str(exc)[:80])
+        record(False, "GET /ai-market/v2/federation/peers", safe_http.public_error(exc))
 
     # §7.3.6 — schemas must be dereferenceable if the hub publishes $id under its own host.
     try:
         status, schema = fetch(f"{base}/schemas/well-known.json")
         ok = status == 200 and isinstance(schema, dict) and "$id" in schema
         record(ok, "GET /schemas/well-known.json resolves", f"HTTP {status}")
-    except urllib.error.HTTPError as exc:
+    except (urllib.error.HTTPError, safe_http.HTTPStatusError) as exc:
         skip("/schemas/ hosting", f"HTTP {exc.code} — optional, but $id then dangles")
     except Exception as exc:
-        skip("/schemas/ hosting", str(exc)[:60])
+        skip("/schemas/ hosting", safe_http.public_error(exc))
 
     # A signed manifest is the one thing every federating peer must be able to verify.
     murl = wk.get("manifest_url") or f"{base}/ai-market/v2/manifest"
     try:
+        murl = safe_http.same_origin_url(base, murl)
         status, manifest = fetch(murl)
         if not isinstance(manifest, dict):
             record(False, "GET manifest", "the manifest is not a JSON object")
@@ -464,7 +473,7 @@ def check_live_hub(base: str) -> None:
             record(ok, "live manifest verifies under §7.3.2 canonical",
                    "" if ok else "canonical mismatch — this hub cannot federate")
     except Exception as exc:
-        record(False, "GET manifest", str(exc)[:80])
+        record(False, "GET manifest", safe_http.public_error(exc))
 
 
 def main() -> int:

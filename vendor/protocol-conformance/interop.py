@@ -9,7 +9,8 @@ cannot raise by turning up its own traffic, because everything at a host listed 
 own-operators.txt is subtracted first:
 
 1. Peers operated by others that pass the live conformance checks of run.py — the peers the
-   reference hub knows (``/ai-market/v2/federation/peers``: admitted and pending).
+   reference hub admits (``/ai-market/v2/federation/peers``: trusted, active peers).
+   Quarantined observations never cause network requests from this process.
 2. Witnesses operated by others whose cosignature is on HISTOR's checkpoint
    (``/checkpoint``, c2sp.org/tlog-cosignature lines other than the log's own).
 3. AWR documents issued by keys others control: reported as not measurable, with the reason,
@@ -33,7 +34,6 @@ import json
 import pathlib
 import sys
 import urllib.parse
-import urllib.request
 
 HERE = pathlib.Path(__file__).resolve().parent
 
@@ -69,9 +69,29 @@ def is_own(value: str, own: list[str]) -> bool:
 
 
 def get_text(url: str, timeout: float = 20.0) -> str:
-    req = urllib.request.Request(url, headers={"User-Agent": "AIMarketInterop/1.0"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return resp.read().decode("utf-8")
+    # The page is also imported by tooling from unrelated working directories.
+    # Reuse the runner's sibling-file loader instead of relying on sys.path.
+    return _load_runner().safe_http.fetch_text(
+        url, timeout=timeout, headers={"User-Agent": "AIMarketInterop/1.0"})
+
+
+def admitted_peer_urls(peers_doc: dict, hub: str) -> list[str]:
+    """Only the operator's reference and explicitly admitted identities are dialled.
+
+    Public observations are an input anyone can fill. Reading the pending array here
+    turned an operator's hourly job into a second admission crawler, with a different
+    network boundary from the hub. A quarantined URL must remain inert here.
+    """
+    urls = [hub]
+    for peer in peers_doc.get("peers") or []:
+        if not isinstance(peer, dict):
+            continue
+        if peer.get("trusted") is not True or peer.get("status") != "active":
+            continue
+        url = str(peer.get("url") or peer.get("hub_url") or "").strip().rstrip("/")
+        if url and url not in urls:
+            urls.append(url)
+    return urls
 
 
 # Checks that only a hub can pass: a provider publishes a catalogue and has no peers to list.
@@ -137,13 +157,10 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:
         print(f"cannot read {hub}: {exc}", file=sys.stderr)
         return 1
-    urls = []
-    for group in ("peers", "pending"):
-        for p in peers_doc.get(group) or []:
-            url = (p.get("url") or p.get("hub_url") or "").rstrip("/") if isinstance(p, dict) else ""
-            if url and url not in urls:
-                urls.append(url)
-    urls = [hub] + [u for u in urls if u != hub]
+    if not isinstance(peers_doc, dict):
+        print("reference hub returned a non-object peer document", file=sys.stderr)
+        return 1
+    urls = admitted_peer_urls(peers_doc, hub)
 
     peers = []
     for url in urls:
@@ -175,6 +192,8 @@ def main(argv: list[str] | None = None) -> int:
         "ownOperators": own,
         "counters": counters,
         "notes": {
+            "probePolicy": "Only trusted, active peers are probed. Quarantined observations are never dialled.",
+            "pendingNotProbed": len(peers_doc.get("pending") or []),
             "outsideAwrIssuers": "not measurable yet: there is no public place where AWR documents issued by "
                                  "others arrive (the HISTOR receipts log admits only listed issuers, all of them "
                                  "this project's). Counted from the day such an intake exists.",
@@ -229,7 +248,8 @@ a{{color:inherit}} code{{font-size:12px}}
 </style></head><body><main>
 <h1>AIMarket Protocol — interop</h1>
 <p>Generated {e(doc["generatedAt"])} (hourly) by <code>aimarket-protocol/conformance/interop.py</code> against <a href="{e(doc["referenceHub"])}">{e(doc["referenceHub"])}</a>.
-A peer counts as "outside" only if its host is not in <code>own-operators.txt</code>. Passing means
+A peer counts as "outside" only if its host is not in <code>own-operators.txt</code>. Live checks cover
+trusted, active peers only; {e(str(doc.get("notes", {}).get("pendingNotProbed", 0)))} quarantined observations were not probed. Passing means
 "interoperates with the reference hub on the discovery surface", not certification, and says nothing about whose software the peer runs. Hub-only checks are left out for providers. Raw data: <a href="interop.json">interop.json</a>.</p>
 <div class="cs">
 {counter(c["outsideHubsPassing"], "hubs run by others that pass every live check")}
