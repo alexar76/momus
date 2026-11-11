@@ -7,7 +7,7 @@ name = "aimarket-momus"
 # Bumped because the tree diverged from the published 0.1.0 wheel: `pip install
 # aimarket-momus==0.1.0` served code this tree had already moved past, at the same version
 # string, so every fix in it was unpublishable and unreachable.
-version = "0.2.0"
+version = "0.2.1"
 description = "MOMUS — autonomous adversarial-audit (red team) satellite: safe conformance probes against the ecosystem's own components, signed findings, and a payer-separated bounty ledger"
 readme = "README.md"
 requires-python = ">=3.11"

@@ -14,7 +14,7 @@ itself*: the bounty treasury is a separate role with its own key, and no payout 
 without an independent verifier. See momus.economics for why that separation is the whole point.
 """
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 # Redeploy smoke-check: this comment exists only to prove that shipping a change does not
 # regenerate the scanner key or lose the findings corpus (both live in a persistent volume).
