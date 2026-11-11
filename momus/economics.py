@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import os
 import time
 from dataclasses import dataclass, field
@@ -104,6 +105,9 @@ def is_valid_ed25519_pubkey(pub_b64: str) -> bool:
 # SERVER-SIDE (here), never trusted from the claim text. (Adversarial review finding H7.)
 _INFRA_COMPONENTS = {"momus", "momus-self", "self", "treasury", "verifier", "gate", "escrow"}
 
+
+
+logger = logging.getLogger("momus.economics")
 
 class Role(str, Enum):
     SCANNER = "scanner"
@@ -237,6 +241,7 @@ class BountyLedger:
         self._paid_dedup: set[str] = set()
         self._daily: dict[str, float] = {}  # "scanner|YYYY-MM-DD" -> total authorized today
         self._last_claim_ts: dict[str, float] = {}
+        self._last_claim_finding: dict[str, str] = {}
         self._load()
 
     def _load(self) -> None:
@@ -255,6 +260,14 @@ class BountyLedger:
             # let a temporary funding shortfall permanently burn a legitimate bounty, which a test
             # caught the moment the vault could actually run out. When funds arrive the claim is
             # payable again, and the resulting PAID entry is what blocks every later duplicate.
+            if rec.get("kind") == "claim" and rec.get("scanner"):
+                try:
+                    at = float(rec.get("at") or 0)
+                except (TypeError, ValueError):
+                    at = 0.0
+                if at > self._last_claim_ts.get(rec["scanner"], 0.0):
+                    self._last_claim_ts[rec["scanner"]] = at
+                    self._last_claim_finding[rec["scanner"]] = str(rec.get("finding_id") or "")
             if rec.get("kind") == "decision" and rec.get("state") == PayoutState.PAID.value:
                 dk = rec.get("dedup_key")
                 if dk:
@@ -270,9 +283,13 @@ class BountyLedger:
     def daily_total(self, scanner_pubkey: str, day: str) -> float:
         return self._daily.get(f"{scanner_pubkey}|{day}", 0.0)
 
-    def seconds_since_last_claim(self, scanner_pubkey: str, now: float) -> float:
+    def seconds_since_last_claim(self, scanner_pubkey: str, now: float, finding_id: str = "") -> float:
+        """Seconds since this scanner's last claim; a retry of that same finding (a HELD claim
+        tried again once funds arrive) is not a new claim and is not throttled."""
         last = self._last_claim_ts.get(scanner_pubkey)
-        return float("inf") if last is None else now - last
+        if last is None or (finding_id and self._last_claim_finding.get(scanner_pubkey) == finding_id):
+            return float("inf")
+        return now - last
 
     def append(self, kind: str, payload: dict[str, Any]) -> None:
         rec = {"kind": kind, "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), **payload}
@@ -289,6 +306,7 @@ class BountyLedger:
 
     def record_claim(self, scanner_pubkey: str, now: float, payload: dict[str, Any]) -> None:
         self._last_claim_ts[scanner_pubkey] = now
+        self._last_claim_finding[scanner_pubkey] = str(payload.get("finding_id") or "")
         self.append("claim", payload)
 
     def entries(self, limit: int = 200) -> list[dict[str, Any]]:
@@ -409,7 +427,7 @@ class PayoutGate:
 
     def authorize(self, finding: Finding, verdicts: list[Verdict], *,
                   deposit_posted_usd: float = 0.0, now: float | None = None,
-                  settle: bool = True) -> Decision:
+                  settle: bool = True, record: bool = True) -> Decision:
         """Decide (and by default settle) a single finder payout.
 
         ``settle=False`` decides without moving anything — used by :meth:`authorize_split`, which
@@ -425,6 +443,10 @@ class PayoutGate:
         # signs the field, so a scanner that wants to be paid twice for one bug just varies it and
         # the ledger's replay guard never matches. A mismatch is refused outright below.
         computed_dedup = finding.compute_dedup_key()
+        # Set once the finding's signature checks out: only then may a refusal hand back the
+        # reservation it names. Before, a junk claim naming another finding's id released the
+        # operator's reservation for it (review of 2026-11-11).
+        authenticated = False
         decision = Decision(
             finding_id=finding.finding_id,
             dedup_key=computed_dedup,
@@ -437,7 +459,7 @@ class PayoutGate:
         # 0. The treasury key must exist and must not be the scanner key — the separation.
         if self._keys.treasury is None:
             decision.reasons.append("no treasury key configured — MOMUS cannot pay itself (fail-closed)")
-            return self._finalize(decision, scanner, sign=False)
+            return self._finalize(decision, scanner, sign=False, record=record, authenticated=authenticated)
         decision.authorized_by = self._keys.treasury_pubkey or ""
 
         # 0b. Infra default-deny: a finding against MOMUS/treasury/verifier/gate/escrow is the
@@ -448,18 +470,19 @@ class PayoutGate:
                 f"finding targets ecosystem infra ('{finding.target}') — routed to human review, "
                 f"auto-payout denied"
             )
-            return self._finalize(decision, scanner, sign=True)
+            return self._finalize(decision, scanner, sign=True, record=record, authenticated=authenticated)
 
         # 1. Finding must be a real, scanner-signed claim of a payable severity.
         if not verify_document_signature(finding.canonical(), finding.signature, scanner):
             decision.reasons.append("finding signature invalid — refused")
-            return self._finalize(decision, scanner, sign=True)
+            return self._finalize(decision, scanner, sign=True, record=record, authenticated=authenticated)
+        authenticated = True
         if terms.bounty_usd <= 0 or terms.quorum <= 0:
             decision.reasons.append(f"severity '{finding.severity}' is not payable")
-            return self._finalize(decision, scanner, sign=True)
+            return self._finalize(decision, scanner, sign=True, record=record, authenticated=authenticated)
         if finding.outcome != "finding":
             decision.reasons.append(f"outcome '{finding.outcome}' is not a finding — nothing to pay")
-            return self._finalize(decision, scanner, sign=True)
+            return self._finalize(decision, scanner, sign=True, record=record, authenticated=authenticated)
 
         # 2a. The declared dedup identity must match the computed one. A claimant that declares a
         # different key is trying to escape the replay guard, so this is a refusal, not a repair.
@@ -467,12 +490,12 @@ class PayoutGate:
             decision.reasons.append(
                 f"declared dedup identity does not match the finding's content "
                 f"(declared {finding.dedup_key}, computed {computed_dedup}) — refused")
-            return self._finalize(decision, scanner, sign=True)
+            return self._finalize(decision, scanner, sign=True, record=record, authenticated=authenticated)
 
         # 2b. Replay guard: a bug pays once, ever.
         if self._ledger.already_paid(decision.dedup_key):
             decision.reasons.append("dedup_key already paid/held — duplicate finding, no double pay")
-            return self._finalize(decision, scanner, sign=True)
+            return self._finalize(decision, scanner, sign=True, record=record, authenticated=authenticated)
 
         # 3. Independent confirming quorum from DISTINCT verifier keys.
         distinct, vreasons = self._distinct_confirming(finding, verdicts)
@@ -482,7 +505,7 @@ class PayoutGate:
             decision.reasons.append(
                 f"need {terms.quorum} distinct independent confirmation(s), have {len(distinct)}"
             )
-            return self._finalize(decision, scanner, sign=True)
+            return self._finalize(decision, scanner, sign=True, record=record, authenticated=authenticated)
 
         # 3b. High/critical must include at least one confirmation from a pre-registered EXTERNAL
         # verifier (a different principal, e.g. Metis) — distinct keys are not distinct parties if
@@ -496,13 +519,13 @@ class PayoutGate:
                         "high/critical payout requires ≥1 confirmation from a registered external "
                         "verifier (none of the confirmations came from MOMUS_EXTERNAL_VERIFIERS)"
                     )
-                    return self._finalize(decision, scanner, sign=True)
+                    return self._finalize(decision, scanner, sign=True, record=record, authenticated=authenticated)
                 if self._prod:
                     decision.reasons.append(
                         "high/critical payout requires a registered external verifier, but "
                         "MOMUS_EXTERNAL_VERIFIERS is empty in prod — fail-closed"
                     )
-                    return self._finalize(decision, scanner, sign=True)
+                    return self._finalize(decision, scanner, sign=True, record=record, authenticated=authenticated)
                 decision.reasons.append(
                     "WARNING: no external verifier registered; strong payout rests on "
                     "operator key custody alone (set MOMUS_EXTERNAL_VERIFIERS + AIFACTORY_PROD)"
@@ -515,19 +538,27 @@ class PayoutGate:
                 f"claim deposit ${deposit_posted_usd} below required ${required_deposit} "
                 f"({int(terms.deposit_ratio * 100)}% of bounty) — refused"
             )
-            return self._finalize(decision, scanner, sign=True)
+            return self._finalize(decision, scanner, sign=True, record=record, authenticated=authenticated)
 
         # 5. Cooldown + daily cap per scanner identity.
-        since = self._ledger.seconds_since_last_claim(scanner, now)
+        # The exemption is keyed on the bug's content (the computed dedup identity), not on the
+        # claimant-chosen finding_id: reusing one id for every new bug turned the cooldown off.
+        since = self._ledger.seconds_since_last_claim(scanner, now, finding_id=computed_dedup)
         if since < self._cooldown:
             decision.reasons.append(f"cooldown: {since:.1f}s since last claim < {self._cooldown}s")
-            return self._finalize(decision, scanner, sign=True)
+            return self._finalize(decision, scanner, sign=True, record=record, authenticated=authenticated)
+        if record:
+            # The cooldown reads the last claim; nothing recorded one, so it never bit
+            # (audit 2026-11-11, satellites-7). A claim that got this far counts.
+            self._ledger.record_claim(scanner, now, {"finding_id": computed_dedup,
+                                                     "claimed_finding_id": finding.finding_id,
+                                                     "scanner": scanner, "at": now})
         day_total = self._ledger.daily_total(scanner, authorized_at[:10])
         if day_total + terms.bounty_usd > self._daily_cap:
             decision.reasons.append(
                 f"daily cap ${self._daily_cap} would be exceeded (${day_total} + ${terms.bounty_usd})"
             )
-            return self._finalize(decision, scanner, sign=True)
+            return self._finalize(decision, scanner, sign=True, record=record, authenticated=authenticated)
 
         # 6. All gates passed. What "paid" means now depends on the SETTLEMENT TIER:
         #    UNI  → settled in simulation (full loop runs, no value moves) → PAID + simulated
@@ -546,7 +577,7 @@ class PayoutGate:
             decision.reasons.append(
                 f"gates passed on {len(distinct)} independent confirmation(s); settlement deferred "
                 f"to the per-share split")
-            return self._finalize(decision, scanner, sign=True)
+            return self._finalize(decision, scanner, sign=True, record=record, authenticated=authenticated)
         s = self._settlement.settle_share(finding_id=finding.finding_id, role="finder",
                                           recipient=scanner, amount_usd=terms.bounty_usd)
         decision.settlement = s.to_dict()
@@ -558,7 +589,7 @@ class PayoutGate:
         else:
             decision.state = PayoutState.HELD.value
             decision.reasons.append(f"gates passed; not released — {s.reason}")
-        return self._finalize(decision, scanner, sign=True)
+        return self._finalize(decision, scanner, sign=True, record=record, authenticated=authenticated)
 
     def authorize_split(self, finding: Finding, verdicts: list[Verdict], *,
                         participants: dict[str, str], deposit_posted_usd: float = 0.0,
@@ -692,9 +723,31 @@ class PayoutGate:
         return {"ruling": "refund", "forfeited_usd": 0.0, "refunded_usd": deposit_posted_usd,
                 "reason": "not refuted — deposit refunded"}
 
-    def _finalize(self, decision: Decision, scanner_pubkey: str, *, sign: bool) -> Decision:
+    def _finalize(self, decision: Decision, scanner_pubkey: str, *, sign: bool,
+                  record: bool = True, authenticated: bool = False) -> Decision:
         if sign and self._keys.treasury is not None:
             canon = json.dumps(decision.to_dict(), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
             decision.signature = self._keys.treasury.sign_payload(canon)
+        if not record:
+            return decision     # a dry run (/explain): nothing recorded, nothing released
         self._ledger.record_decision(decision, scanner_pubkey)
+        if decision.state == PayoutState.PAID.value or (
+                decision.state == PayoutState.REFUSED.value and authenticated):
+            self._release_reservation(decision)
         return decision
+
+    def _release_reservation(self, decision: Decision) -> None:
+        """A final answer hands back whatever is still reserved for the finding.
+
+        A refused claim (quorum, dedup, cap) kept its reservation for good, and so did the
+        unpaid remainder of a paid one, lowering what every later bounty could draw on
+        (audit 2026-11-11, satellites-6). HELD keeps it: that claim can still be paid.
+        """
+        vault = getattr(self._settlement, "vault", None)
+        if vault is None:
+            return
+        try:
+            vault.unreserve(decision.finding_id,
+                            note=f"claim {decision.state} — reservation returned to available")
+        except Exception as exc:  # noqa: BLE001
+            logger.error("could not return the reservation of %s: %s", decision.finding_id, exc)

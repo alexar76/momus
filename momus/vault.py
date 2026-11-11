@@ -152,6 +152,22 @@ class UniVault:
         return True, "reserved", self._tx("reserve", amount_usd, finding_id=finding_id,
                                           note="pool set aside for a gate-approved bounty")
 
+    def reserved_for(self, finding_id: str) -> float:
+        return round(self._reservations.get(finding_id, 0.0), 6)
+
+    def ensure_reserved(self, finding_id: str, amount_usd: float) -> tuple[bool, str]:
+        """Make sure at least ``amount_usd`` is reserved for a gate-approved share.
+
+        Nothing created reservations except the operator's manual /vault/reserve, so every UNI
+        share was refused by ``release`` (audit 2026-11-11, satellites-6). The gate's approval
+        is the authority to set the money aside; the vault still refuses when it cannot cover it.
+        """
+        shortfall = round(amount_usd - self.reserved_for(finding_id), 6)
+        if shortfall <= 1e-9:
+            return True, "already reserved"
+        ok, why, _tx = self.reserve(finding_id, shortfall)
+        return ok, why
+
     def release(self, finding_id: str, role: str, amount_usd: float) -> tuple[bool, str, VaultTx | None]:
         """Pay one contributor's share out of that finding's reservation."""
         if amount_usd <= 0:

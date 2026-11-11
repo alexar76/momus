@@ -246,7 +246,10 @@ class SettlementBackend:
         # With a vault, the share must actually come OUT of a funded, reserved balance — an
         # underfunded vault refuses instead of paying, exactly as a real treasury would.
         if self.vault is not None:
-            ok, why, tx = self.vault.release(finding_id, role, amount_usd)
+            ok, why = self.vault.ensure_reserved(finding_id, amount_usd)
+            tx = None
+            if ok:
+                ok, why, tx = self.vault.release(finding_id, role, amount_usd)
             if not ok:
                 return SettlementDecision(
                     mode=self.mode.value, settled=False, simulated=True,

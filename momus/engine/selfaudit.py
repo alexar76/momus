@@ -19,8 +19,10 @@ These run against live, in-process objects, so they test the real gate, not a de
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 from momus.economics import BountyLedger, KeyRing, PayoutGate, PayoutState, terms_for
+from momus.settlement import SettlementBackend, SettlementMode
 from momus.findings import (
     Evidence,
     Finding,
@@ -79,8 +81,16 @@ def run_self_audit(scanner: FindingSigner, keyring: KeyRing, ledger_path_factory
 
     # Build a gate whose treasury CAN sign, to test the self-verification rejection concretely.
     if keyring.treasury is not None:
-        ledger = BountyLedger(ledger_path_factory())
-        gate = PayoutGate(keyring, ledger, crypto_enabled=True, prod=False, cooldown_s=0)
+        ledger_path = ledger_path_factory()
+        ledger = BountyLedger(ledger_path)
+        # Its own throwaway settlement: from_env attached the operator's persistent UNI vault,
+        # and since a gate-approved share reserves what it needs, every free self-audit run
+        # paid its synthetic HIGH bounty out of the real (simulated) budget (review of
+        # 2026-11-11). The probe tests the gate, not the vault.
+        sandbox = SettlementBackend(SettlementMode.UNI, "self-audit sandbox",
+                                    uni_ledger_path=str(Path(ledger_path).with_suffix(".uni.jsonl")))
+        gate = PayoutGate(keyring, ledger, crypto_enabled=True, prod=False, cooldown_s=0,
+                          settlement=sandbox)
         finding = _mk_finding(scanner, Severity.HIGH)
         terms = terms_for(finding.severity)
         deposit = terms.bounty_usd * terms.deposit_ratio
