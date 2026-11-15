@@ -121,6 +121,25 @@ unit 文件使用 UTC，附加最长十分钟的随机延迟，并通过 `Persis
 
 **WARDEN 未变的 HISTOR 部署。** `scripts/deploy_histor.sh` 最后执行 `skopos-warden-quality rebind IMAGE`。如果新 HISTOR 镜像内置的 WARDEN 与线上绑定逐字节相同，且该构建的线上收据新鲜且通过，则绑定、已接受源码指针和每日计划会直接转到新镜像，不做任何测量。WARDEN 有变化时保留旧绑定——在完整候选评估通过之前，下一次每日运行会拒绝——部署也会给出提示。
 
+**连接中断会重新请求。** 当分类器没有给出回答（连接中断、超时或 HTTP 429/5xx）时，
+`coverage_semantic.mjs` 会重做整批请求：最多三次尝试，间隔先 2 秒、再 8 秒；保留最后一次尝试的原样结果，
+不同尝试的行绝不混用。提供方确实给出的回答（格式错误、不完整、4xx）照旧记录；三次后仍失败的批次保持
+incomplete 并阻止发布。重试次数记录在 `process.log` 中。此前一次断线就会让整批八个用例变成 incomplete：
+2026-11-15 同一构建的两次候选评估仅因网络失败（48 个和 8 个用例，没有任何漏检）。WARDEN 本身在运行时
+不重试传输错误；重试只存在于测量中。
+
+**在主机上更换质量评估源码。** 评估器在 admin-vps 上从 `/opt/momus-quality/source` 运行。
+`momus/momus/` 下已提交的修改由所有者用一条命令部署：
+
+```bash
+./scripts/deploy_momus_quality_source.sh --dry-run momus/momus/engine/coverage_semantic.mjs
+./scripts/deploy_momus_quality_source.sh momus/momus/engine/coverage_semantic.mjs
+```
+
+脚本拒绝未提交的文件和 `momus/momus/` 之外的路径，并等待正在运行的 MOMUS 周期结束。它把旧文件保存为
+`<名称>.pre-<UTC 时间>-<旧 sha>`，从不覆盖已有备份；在主机上检查语法，保留属主和权限，核对安装后的
+sha256，并打印回滚命令。由所有者运行，而不是准备 WARDEN 发布的代理：MOMUS 评判这些发布，被评判者不能更改评判者。
+
 `deploy/install-quality.py` 接收可信的必要仓库副本、冻结开发语料及单独提供的封存留出集，保留现有密钥、语料和已接受构建。
 Nginx 只公开收据的精确路径，不公开整个状态目录。先完成完整验收，再启用两个定时器。
 停用定时器会暂停测量；收据过期后发布仍被阻止，生产扫描继续运行。

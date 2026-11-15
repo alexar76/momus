@@ -166,6 +166,33 @@ quotidien passent à la nouvelle image sans aucune mesure. Un WARDEN modifié ga
 liaison — l’exécution quotidienne suivante refuse jusqu’à ce que l’évaluation complète du candidat
 réussisse — et le déploiement le signale.
 
+**Une connexion coupée est redemandée.** `coverage_semantic.mjs` répète un lot quand le classifieur
+n'a pas répondu : connexion coupée, délai dépassé ou HTTP 429/5xx. Jusqu'à trois tentatives, avec une
+pause de 2 s puis de 8 s ; la dernière tentative est gardée telle quelle et les lignes de tentatives
+différentes ne sont jamais mélangées. Une réponse que le fournisseur a bien donnée (mal formée,
+incomplète, un 4xx) est enregistrée comme avant, et un lot qui échoue encore après trois tentatives
+reste incomplet et bloque la publication. `process.log` compte les nouvelles tentatives. Avant, une
+seule coupure rendait incomplet un lot entier de huit cas : le 2026-11-15, deux exécutions candidates
+du même build ont échoué uniquement à cause du réseau (48 et 8 cas, aucune détection manquée). WARDEN
+lui-même ne réessaie pas les erreurs de transport en production ; la nouvelle tentative n'existe que
+dans la mesure.
+
+**Modifier le code de la mesure sur le serveur.** L'évaluateur tourne depuis `/opt/momus-quality/source`
+sur admin-vps. Une modification validée sous `momus/momus/` y arrive par une seule commande du
+propriétaire :
+
+```bash
+./scripts/deploy_momus_quality_source.sh --dry-run momus/momus/engine/coverage_semantic.mjs
+./scripts/deploy_momus_quality_source.sh momus/momus/engine/coverage_semantic.mjs
+```
+
+Le script refuse les fichiers non validés et les chemins hors de `momus/momus/`, et attend la fin d'un
+cycle MOMUS en cours. Il garde l'ancien fichier sous `<nom>.pre-<heure UTC>-<ancien sha>` et n'écrase
+jamais une sauvegarde. Il vérifie la syntaxe sur le serveur, conserve propriétaire et droits, contrôle le
+sha256 installé et affiche la commande de retour arrière. C'est le propriétaire qui le lance, pas l'agent
+qui prépare les versions de WARDEN : MOMUS juge ces versions, et le juge n'est pas modifié par celui
+qu'il juge.
+
 `deploy/install-quality.py` reçoit une copie fiable de la partie utile du dépôt, le corpus figé et
 un jeu réservé fourni séparément ; il conserve clés, corpus et versions acceptées. Nginx ne publie
 que les chemins exacts des reçus, jamais tout l’état. Effectuer l’acceptation complète avant d’activer

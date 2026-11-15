@@ -181,6 +181,30 @@ binding, the accepted source pointer and the daily schedule move to the new imag
 measurement at all. A changed WARDEN keeps the old binding — the next daily run refuses until the
 full candidate evaluation has passed — and the deploy says so.
 
+**A dropped connection is asked again.** `coverage_semantic.mjs` repeats a batch when the classifier
+never answered: a dropped connection, a timeout, or HTTP 429/5xx. It makes up to three attempts, 2 s and
+then 8 s apart, and keeps the last attempt as it came; rows of different attempts are never mixed. An
+answer the provider did give (malformed, incomplete, a 4xx) is recorded as before, and a batch that
+still fails after three attempts stays incomplete and blocks the release. `process.log` counts the
+retries. Before this, one dropped connection marked a whole batch of eight cases incomplete: on
+2026-11-15 two candidate runs of the same build failed on transport alone (48 and 8 cases, nothing
+missed). WARDEN itself does not retry transport failures at runtime; the retry exists only in the
+measurement.
+
+**Changing the quality source on the host.** The evaluator runs from `/opt/momus-quality/source` on
+admin-vps. A committed change under `momus/momus/` goes there with one owner command:
+
+```bash
+./scripts/deploy_momus_quality_source.sh --dry-run momus/momus/engine/coverage_semantic.mjs
+./scripts/deploy_momus_quality_source.sh momus/momus/engine/coverage_semantic.mjs
+```
+
+The script refuses uncommitted files and paths outside `momus/momus/`, and waits out a running MOMUS
+cycle. It keeps the old file as `<name>.pre-<UTC time>-<old sha>` and never overwrites a backup. It
+checks syntax on the host, keeps the owner and mode, verifies the installed sha256 and prints the
+rollback command. The owner runs it, not the agent that prepares WARDEN releases: MOMUS judges those
+releases, and the judge is not changed by the one it judges.
+
 Installation: `deploy/install-quality.py` consumes a trusted extracted repository
 slice, the frozen development corpus and a separately supplied holdout. It preserves
 existing keys, corpora and accepted builds. Install the nginx exact-file location

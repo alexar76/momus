@@ -162,6 +162,32 @@ imagen sin medición alguna. Un WARDEN cambiado conserva la vinculación anterio
 ejecución diaria se niega hasta que pase la evaluación completa del candidato— y el despliegue lo
 avisa.
 
+**Una conexión cortada se vuelve a preguntar.** `coverage_semantic.mjs` repite un lote cuando el
+clasificador no llegó a responder: conexión cortada, tiempo agotado o HTTP 429/5xx. Hasta tres
+intentos, con pausas de 2 s y luego 8 s; cuenta el último intento tal como llegó y nunca se mezclan
+filas de intentos distintos. Una respuesta que el proveedor sí dio (mal formada, incompleta, un 4xx) se
+registra como antes, y un lote que sigue fallando tras tres intentos queda incompleto y bloquea la
+publicación. `process.log` cuenta los reintentos. Antes, un solo corte dejaba incompleto un lote entero
+de ocho casos: el 2026-11-15 dos ejecuciones candidatas de la misma compilación fallaron solo por la red
+(48 y 8 casos, ningún fallo de detección). WARDEN no reintenta errores de transporte en producción; el
+reintento existe solo en la medición.
+
+**Cambiar el código de la medición en el servidor.** El evaluador se ejecuta desde
+`/opt/momus-quality/source` en admin-vps. Un cambio confirmado en `momus/momus/` llega allí con un solo
+comando del propietario:
+
+```bash
+./scripts/deploy_momus_quality_source.sh --dry-run momus/momus/engine/coverage_semantic.mjs
+./scripts/deploy_momus_quality_source.sh momus/momus/engine/coverage_semantic.mjs
+```
+
+El script rechaza archivos sin confirmar y rutas fuera de `momus/momus/`, y espera a que termine un
+ciclo de MOMUS en curso. Guarda el archivo anterior como `<nombre>.pre-<hora UTC>-<sha anterior>` y
+nunca sobrescribe una copia de seguridad. Comprueba la sintaxis en el servidor, conserva propietario y
+permisos, verifica el sha256 instalado e imprime el comando de reversión. Lo ejecuta el propietario, no
+el agente que prepara las versiones de WARDEN: MOMUS juzga esas versiones, y al juez no lo cambia quien
+es juzgado.
+
 `deploy/install-quality.py` recibe una copia fiable de la parte necesaria del repositorio, el corpus
 congelado y un conjunto reservado suministrado por separado; conserva claves, corpus y versiones aceptadas.
 Nginx expone exclusivamente las rutas exactas de los recibos, nunca todo el estado.

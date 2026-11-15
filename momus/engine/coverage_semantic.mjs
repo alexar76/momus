@@ -63,12 +63,39 @@ const done = new Set(rows.map(r => r.id));
 const pending = cases.filter(v => !done.has(v.id));
 const batches = Array.from({ length: Math.ceil(pending.length / identity.batchSize) }, (_, i) => pending.slice(i * identity.batchSize, (i + 1) * identity.batchSize));
 let cursor = 0, finished = rows.length;
+// A dropped connection, a timeout or a provider-side 429/5xx carries no model judgment. inspectTools records
+// such a failure as incomplete rows rather than throwing, so the whole batch is asked again when any row
+// failed that way: up to three attempts, 2 s then 8 s apart, and the LAST attempt is kept as it came (rows of
+// different attempts are never mixed). Anything the provider DID answer (a malformed or incomplete answer, a
+// 4xx) is recorded as before. On 2026-11-15 two candidate runs of one build lost 48 and 8 cases to
+// `read ECONNRESET` / `ETIMEDOUT` alone, which made the release gate a lottery. WARDEN itself keeps refusing
+// transport failures at runtime; this retry lives only in the measurement.
+const TRANSIENT = /^(?:classifier did not answer\b|classifier timed out$|aborted$|socket hang up$|classifier answered HTTP (?:429|5\d\d)$)/;
+let retried = 0;
+const pause = ms => new Promise(done => setTimeout(done, ms));
+const redact = text => String(text).replaceAll(process.env.WARDEN_CLASSIFIER_API_KEY, '[redacted]').slice(0, 120);
+async function inspectWithRetry(tools, options) {
+  for (let attempt = 1; ; attempt++) {
+    let inspection, failure;
+    try {
+      inspection = await inspectTools(tools, options);
+      failure = inspection.incomplete.find(f => TRANSIENT.test(String(f.error)))?.error;
+    } catch (error) {
+      failure = String(error?.message ?? error);
+      if (!TRANSIENT.test(failure) || attempt >= 3) throw error;
+    }
+    if (inspection && (!failure || attempt >= 3)) return inspection;
+    retried++;
+    console.log(JSON.stringify({ retry: attempt, error: redact(failure) }));
+    await pause(2000 * 4 ** (attempt - 1));
+  }
+}
 async function worker() {
   while (cursor < batches.length) {
     const batch = batches[cursor++];
     let answers;
     try {
-      const inspection = await inspectTools(batch.map(v => v.tools[0]), { url, model,
+      const inspection = await inspectWithRetry(batch.map(v => v.tools[0]), { url, model,
         apiKey: process.env.WARDEN_CLASSIFIER_API_KEY, requireComplete: true, timeoutMs: 120000, reasoningEffort,
         onResponse: (content, inspected, metadata) => appendFileSync(join(out, 'responses.jsonl'), JSON.stringify({ ids: inspected.map(t => batch.find(v => v.tools[0] === t)?.id), content, ...metadata }) + '\n') });
       answers = await Promise.all(batch.map(async (v, i) => {
@@ -88,7 +115,7 @@ async function worker() {
     rows.push(...answers);
     appendFileSync(rowsPath, answers.map(r => JSON.stringify(r) + '\n').join(''));
     finished += batch.length;
-    if (finished % 80 === 0 || finished === cases.length) console.log(JSON.stringify({ finished, total: cases.length, incomplete: rows.filter(r => r.status !== 'scanned').length }));
+    if (finished % 80 === 0 || finished === cases.length) console.log(JSON.stringify({ finished, total: cases.length, incomplete: rows.filter(r => r.status !== 'scanned').length, retried }));
   }
 }
 await Promise.all(Array.from({ length: identity.concurrency }, worker));
