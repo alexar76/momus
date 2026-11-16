@@ -148,7 +148,7 @@ def _targets_from_env() -> list[TargetEndpoint]:
     # the wire can add a target; that is what keeps a probe from ever being pointed at a stranger.
     extra = os.environ.get("MOMUS_EXTRA_TARGETS", "").strip()
     if extra:
-        known_kinds = {"oracle", "hub", "metis", "quality"}
+        known_kinds = {"oracle", "hub", "metis", "quality", "code"}
         for spec in extra.split(","):
             parts = [p.strip() for p in spec.split("|")]
             if len(parts) != 3 or not parts[0] or not parts[1]:

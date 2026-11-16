@@ -119,16 +119,40 @@ def escalation_for(component: str, target_kind: str = "", category: str = "") ->
     """
     if component in _INFRA_COMPONENTS or target_kind in ("self", "meta"):
         return "human-governance"
+    if code_area(component) in _CODE_CORE:
+        # The auditor, the payer and the conductor are not patched by the loop they run, whatever found it. Keyed on
+        # the component alone: the conductor re-derives the route from a ticket that does not carry target_kind.
+        return "human-governance"
     if target_kind == "host" and category not in _HOST_FIXABLE_CATEGORIES:
         return "human-governance"
     return "auto"
 
 
+#: Source areas of the security core: a code finding inside them goes to a human, never to the fix loop.
+_CODE_CORE = frozenset({"momus", "treasury", "skopos", "verifier", "gate", "escrow"})
+
+
+def code_area(component: str) -> str:
+    """`code:skopos` -> `skopos`; anything else -> ""."""
+    return component.split(":", 1)[1].split("/", 1)[0] if component.startswith("code:") else ""
+
+
+def ticket_component(finding: Finding) -> str:
+    """Who is at fault. A service finding blames its target; a code finding blames the top-level source area of the
+    file it is in (`code:<dir>`), so routing and the fixer's scope follow the code, not the repository's name."""
+    if finding.target_kind == "code":
+        paths = tuple(getattr(finding.evidence, "reference_artifacts", ()) or ())
+        if paths and "/" in paths[0]:
+            return "code:" + paths[0].split("/", 1)[0]
+    return finding.target
+
+
 def open_ticket(finding: Finding, signer: FindingSigner) -> RemediationTicket:
     """Turn a finding into a signed remediation ticket (with a Blame attestation)."""
-    route = escalation_for(finding.target, finding.target_kind, finding.category)
+    component = ticket_component(finding)
+    route = escalation_for(component, finding.target_kind, finding.category)
     blame = Blame(
-        finding_id=finding.finding_id, component=finding.target, severity=finding.severity,
+        finding_id=finding.finding_id, component=component, severity=finding.severity,
         hop=f"{finding.target}:{finding.probe}",
         summary=f"{finding.title} — {route} remediation",
     )
@@ -139,7 +163,7 @@ def open_ticket(finding: Finding, signer: FindingSigner) -> RemediationTicket:
     except Exception:  # noqa: BLE001 - evidence is a convenience, never a blocker
         evidence = {}
     return RemediationTicket(
-        finding_id=finding.finding_id, component=finding.target, target=finding.target,
+        finding_id=finding.finding_id, component=component, target=finding.target,
         probe=finding.probe, severity=finding.severity, reproducer=finding.evidence.reproducer,
         route=route, blame={**blame.canonical(), "signature": blame.signature},
         title=str(finding.title or ""), detail=str(finding.detail or ""), evidence=evidence,

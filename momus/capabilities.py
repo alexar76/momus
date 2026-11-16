@@ -475,7 +475,16 @@ class MomusRuntime:
         tgt = self.self_target() if target_name in ("momus", "momus-self", "self") else self.target(target_name)
         if tgt is None:
             return {"error": "unknown_target", "target": target_name}
-        if candidate:
+        if tgt.kind == "code":
+            # A code probe sees every open bug in the tree; the gate is about THIS one. Focus on its rule, file and
+            # function, and for a candidate read the newest fix branch the conductor pushed for it (by convention
+            # momus/fix-<finding_id>-<n>; never a ref from the request, same rule as candidate_target).
+            from momus.targets.code import focus_from_finding
+            focus = focus_from_finding(f)
+            if focus is None:
+                return {"error": "code_finding_without_focus", "finding_id": finding_id}
+            tgt = tgt.for_candidate(finding_id, focus) if candidate else tgt.focused(focus)
+        elif candidate:
             tgt = self.candidate_target(tgt)
         # `gated` travels INSIDE the signed body (see FixVerdict) — the returned dict must stay
         # byte-identical to what was signed, because the node agent verifies the signature over

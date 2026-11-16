@@ -36,6 +36,10 @@ def build_targets(config) -> list[Target]:
             out.append(QualityTarget(ep.name, ep.base_url))
         elif ep.kind == "hub":
             out.append(HubTarget(ep.name, ep.base_url))
+        elif ep.kind == "code":
+            # A local, read-only git directory (momus.targets.code): MOMUS reads the source it audits.
+            from momus.targets.code import CodeTarget
+            out.append(CodeTarget(ep.name, ep.base_url))
         elif ep.kind in ("metis",):
             # A cognitive/LLM-backed node: probe its contract like an oracle AND its
             # prompt-injection surface. The injection target gets a DISTINCT name — the runtime

@@ -135,6 +135,11 @@ class Finding:
             "category": self.category,
             "status_code": self.evidence.status_code,
         }
+        if self.target_kind == "code":
+            # One code probe reports many bugs of one category (every VX-FWD-HEADER-TRUST in the tree is "authz").
+            # Its contract-level identity is the rule, file and function the probe records as the request; without
+            # it, three different files collapsed into one finding on the first live scan (2026-11-16).
+            basis["focus"] = self.evidence.request_snippet
         return "dedup-" + hashlib.sha256(
             json.dumps(basis, sort_keys=True, separators=(",", ":")).encode()
         ).hexdigest()[:24]
