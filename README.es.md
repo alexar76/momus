@@ -37,6 +37,8 @@
   ·
   <strong><a href="docs/found-and-fixed.es.md">Fallos hallados y corregidos</a></strong>
   ·
+  <strong><a href="docs/source-findings.es.md">MOMUS lee el código</a></strong>
+  ·
   <strong><a href="docs/first-cycle.es.md">El primer ciclo en vivo</a></strong>
   ·
   <strong><a href="docs/uni-chain.es.md">Cada transacción explicada</a></strong>

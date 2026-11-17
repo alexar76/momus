@@ -40,6 +40,11 @@ RULES: dict[str, tuple[Severity, str]] = {
     "VX-918-CHECK-THEN-CONNECT": (Severity.MEDIUM, "ssrf"),
     "VX-FWD-HEADER-TRUST": (Severity.MEDIUM, "authz"),
     "VX-SSH-NO-HOSTKEY": (Severity.MEDIUM, "integrity"),
+    # 2026-11-16, from published outside advisories (artifacts/momus-outside-cves-2026-11-16):
+    "VX-295-TLS-OFF": (Severity.MEDIUM, "integrity"),
+    "VX-918-FETCH-UNCHECKED": (Severity.HIGH, "ssrf"),
+    "VX-918-REDIRECT-AFTER-CHECK": (Severity.MEDIUM, "ssrf"),
+    "VX-306-ROUTE-NO-AUTH": (Severity.MEDIUM, "authz"),
 }
 
 #: How a fix is recognised: the shape each rule accepts. Shown to the fixer as the acceptance criterion.
@@ -53,6 +58,14 @@ FIX_SHAPE = {
     "VX-FWD-HEADER-TRUST": "read X-Real-IP / X-Forwarded-For only when the socket peer is a trusted proxy "
                            "(`if peer in trusted_proxies:` / `peer_is_local_proxy(peer)`), else use the peer",
     "VX-SSH-NO-HOSTKEY": "StrictHostKeyChecking=accept-new with a pinned UserKnownHostsFile",
+    "VX-295-TLS-OFF": "leave certificate checking on (pass a CA bundle for a private CA); relax it only under an "
+                      "`if` that limits it to a loopback peer, or where the code compares the certificate itself",
+    "VX-918-FETCH-UNCHECKED": "check the caller's URL before the request (scheme, resolve once, refuse private/"
+                              "loopback/link-local) and connect to the checked address",
+    "VX-918-REDIRECT-AFTER-CHECK": "fetch with redirects off (allow_redirects=False / follow_redirects=False) and "
+                                   "check every Location before following it",
+    "VX-306-ROUTE-NO-AUTH": "require a key, token or session on every state-changing route (a FastAPI dependency, "
+                            "a Flask before_request), or bind the app to loopback only",
 }
 
 _FIX_BRANCH = "refs/heads/momus/fix-{fid}-"
@@ -90,10 +103,13 @@ class CodeTarget(Target):
     _cache: dict[str, list[vx.Finding]] = {}   # commit sha -> findings (a commit never changes)
 
     def __init__(self, name: str, base_url: str, *, transport: Any = None, ref: str = "refs/heads/main",
-                 focus: dict[str, str] | None = None) -> None:
+                 focus: dict[str, str] | None = None, base_ref: str = "") -> None:
         super().__init__(name, base_url, transport=transport)
         self.ref = ref
         self.focus = focus
+        #: For a candidate (fix branch): the branch it is judged against. Only acceptance marks already present
+        #: there count, so a fix cannot silence the rule it is meant to satisfy.
+        self.base_ref = base_ref
 
     # --- the repository, read-only -------------------------------------------------------------------------------
     @property
@@ -125,7 +141,7 @@ class CodeTarget(Target):
 
     def for_candidate(self, finding_id: str, focus: dict[str, str] | None) -> "CodeTarget":
         ref = self.candidate_ref(finding_id) or f"refs/heads/momus/fix-{finding_id}-missing"
-        return CodeTarget(f"{self.name}-candidate", self.base_url, ref=ref, focus=focus)
+        return CodeTarget(f"{self.name}-candidate", self.base_url, ref=ref, focus=focus, base_ref=self.ref)
 
     def focused(self, focus: dict[str, str] | None) -> "CodeTarget":
         return CodeTarget(self.name, self.base_url, ref=self.ref, focus=focus)
@@ -138,7 +154,14 @@ class CodeTarget(Target):
                 blob = self._git("show", f"{sha}:{path}", binary=True)
             except subprocess.CalledProcessError:
                 return []   # the file is gone at this commit: nothing of it can reproduce
-            return vx.scan_file(path, blob.decode("utf-8", "replace"))
+            honored = None
+            if self.base_ref:
+                try:
+                    base = self._git("show", f"{self.base_ref}:{path}", binary=True).decode("utf-8", "replace")
+                except subprocess.CalledProcessError:
+                    base = ""
+                honored = vx.ok_marks(base)
+            return vx.scan_file(path, blob.decode("utf-8", "replace"), honored)
         if sha in self._cache:
             return self._cache[sha]
         data = self._git("archive", "--format=tar", sha, binary=True, timeout=300.0)

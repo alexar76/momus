@@ -40,6 +40,8 @@
   ·
   <strong><a href="docs/found-and-fixed.md">Bugs actually found & fixed</a></strong>
   ·
+  <strong><a href="docs/source-findings.md">MOMUS reads the source</a></strong>
+  ·
   <strong><a href="docs/first-cycle.md">The first live cycle</a></strong>
   ·
   <strong><a href="docs/uni-chain.md">Every transaction explained</a></strong>

@@ -30,6 +30,11 @@ is *good*, which is why the branch exists and merging stays a human's decision.
 **MOMUS found no bugs in the ecosystem's real components.** The oracle family, GAIA and the hub pass
 their own contract checks. Findings come from the canary, on purpose.
 
+**Update, 2026-11-16:** this holds for probing running services. Since that date MOMUS also reads
+the source. On its first scan it found 7 instances of the bug classes Vulnetix had reported, still on
+main, and its own loop fixed 2 of them correctly. The record, including the 3 wrong fixes that
+passed its gate: [source-findings.md](source-findings.md).
+
 ---
 
 ## 1. The operator gate was bypassable through the marketplace path

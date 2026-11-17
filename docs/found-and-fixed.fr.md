@@ -34,6 +34,11 @@ dans la démonstration plus qu'elle ne mérite.
 **MOMUS n'a trouvé aucun bug dans les vrais composants de l'écosystème.** La famille d'oracles, GAIA et
 le hub passent leurs propres contrôles de contrat. Les constats viennent du canari, à dessein.
 
+**Mise à jour, 2026-11-16 :** cela vaut pour la sonde des services en production. Depuis cette date,
+MOMUS lit aussi le code source. Sa première analyse a trouvé sur main 7 occurrences des classes de
+bugs signalées par Vulnetix, et sa propre boucle en a corrigé 2 correctement. Le dossier, y compris
+les 3 correctifs faux qui ont passé sa porte : [source-findings.fr.md](source-findings.fr.md).
+
 ---
 
 ## 1. La porte d'opérateur était contournable par le chemin de la place de marché

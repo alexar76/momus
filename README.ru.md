@@ -37,6 +37,8 @@
   ·
   <strong><a href="docs/found-and-fixed.ru.md">Найденные и починенные баги</a></strong>
   ·
+  <strong><a href="docs/source-findings.ru.md">MOMUS читает код</a></strong>
+  ·
   <strong><a href="docs/first-cycle.ru.md">Первый живой цикл</a></strong>
   ·
   <strong><a href="docs/uni-chain.ru.md">Каждая транзакция по шагам</a></strong>

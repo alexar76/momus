@@ -37,6 +37,8 @@
   ·
   <strong><a href="docs/found-and-fixed.zh.md">真实发现并修复的缺陷</a></strong>
   ·
+  <strong><a href="docs/source-findings.zh.md">MOMUS 读源代码</a></strong>
+  ·
   <strong><a href="docs/first-cycle.zh.md">首个线上闭环</a></strong>
   ·
   <strong><a href="docs/uni-chain.zh.md">每笔交易的含义</a></strong>

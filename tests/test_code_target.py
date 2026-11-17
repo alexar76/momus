@@ -145,3 +145,25 @@ def test_each_file_and_function_is_its_own_finding_in_the_corpus():
     other = Finding(**{**service.__dict__, "evidence": Evidence(request_digest="c", response_digest="d",
                                                                 request_snippet="y")})
     assert service.compute_dedup_key() == other.compute_dedup_key()   # service findings keep their old identity
+
+
+SILENCED = BAD.replace('    return (request', '    # vx-ok: connect to the address that was checked\n    return (request')
+
+
+async def test_a_fix_branch_cannot_accept_its_own_finding(repo):
+    """2026-11-16, the first live loop: the fixer added only a `# vx-ok:` line and the gate called it fixed."""
+    focus = {"rule": "VX-FWD-HEADER-TRUST", "path": "svc/app.py", "function": "client_key"}
+    push_branch(repo, "momus/fix-f9-1", SILENCED)
+    _, results = await run_probe(CodeTarget("aicom-code", repo["url"]).for_candidate("f9", focus))
+    assert [r.outcome for r in results] == [Outcome.FINDING]
+
+
+async def test_a_mark_already_on_main_still_counts_for_the_branch(repo):
+    work = repo["work"]
+    (work / "svc" / "app.py").write_text(SILENCED)
+    git(work, "commit", "-qam", "accepted on main by a person")
+    git(work, "push", "-q", str(repo["bare"]), "main:main")
+    focus = {"rule": "VX-FWD-HEADER-TRUST", "path": "svc/app.py", "function": "client_key"}
+    push_branch(repo, "momus/fix-f8-1", SILENCED + "\n# unrelated edit\n")
+    _, results = await run_probe(CodeTarget("aicom-code", repo["url"]).for_candidate("f8", focus))
+    assert [r.outcome for r in results] == [Outcome.NO_FINDING]

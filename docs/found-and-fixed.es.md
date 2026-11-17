@@ -35,6 +35,11 @@ para que nadie lea en la demo más de lo que ésta se ha ganado.
 GAIA y el hub pasan sus propias comprobaciones de contrato. Los hallazgos vienen del canario, a
 propósito.
 
+**Actualización, 2026-11-16:** esto vale para el sondeo de servicios en ejecución. Desde esa fecha
+MOMUS también lee el código fuente. En su primer escaneo encontró en main 7 casos de las clases de
+bugs que había informado Vulnetix, y su propio ciclo corrigió bien 2 de ellos. El registro, incluidas
+las 3 correcciones erróneas que pasaron su puerta: [source-findings.es.md](source-findings.es.md).
+
 ---
 
 ## 1. La puerta del operador se podía eludir por la vía del marketplace

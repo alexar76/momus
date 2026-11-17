@@ -37,6 +37,8 @@
   ·
   <strong><a href="docs/found-and-fixed.fr.md">Bogues trouvés et corrigés</a></strong>
   ·
+  <strong><a href="docs/source-findings.fr.md">MOMUS lit le code</a></strong>
+  ·
   <strong><a href="docs/first-cycle.fr.md">Le premier cycle en direct</a></strong>
   ·
   <strong><a href="docs/uni-chain.fr.md">Chaque transaction expliquée</a></strong>
