@@ -146,17 +146,15 @@ Relancer le service après rétablissement, sans compter des lignes partielles c
 Limites : huit requêtes simultanées du classificateur, huit outils par lot, une requête de génération
 d’au plus huit propositions par tour quotidien et huit heures au maximum par exécution du service.
 
-**Une mesure, un paiement.** Une mesure antérieure complète d’entrées identiques octet pour octet
-est réutilisée au lieu d’être achetée de nouveau : les mêmes cas, la même version de WARDEN (qui
-porte le prompt du classificateur) et — comparés champ par champ par `coverage_semantic.mjs` à sa
-propre identité — le même modèle, le même point d’accès et le même protocole. Pendant douze heures
-seulement : l’exécution quotidienne planifiée a lieu un jour plus tard, elle mesure donc toujours à
-nouveau et remarque un fournisseur qui a changé le modèle sous le même nom, tandis qu’une répétition
-le même jour (une relance, un candidat dont le WARDEN n’a pas changé) ne coûte rien. Une mesure
-partielle n’est jamais réutilisée, une ligne inachevée est mesurée de nouveau, et un rapport qui
-réutilise une mesure expire 48 heures après l’originale, pas après la réutilisation. Pour l’ordre de
-grandeur : une exécution du corpus complet représente environ 1 076 appels au classificateur
-(≈ 3,8 M de jetons en entrée et 0,5 M en sortie), une exécution quotidienne environ 45.
+**Réutilisation des réponses du modèle.** Pendant douze heures, MOMUS peut rejouer les réponses
+validées d’une exécution réussie de la même suite sur le même corpus. Le point d’accès, les
+identifiants et la requête complète doivent correspondre après normalisation du marqueur aléatoire
+de WARDEN. La nouvelle version interprète chaque réponse, effectue les vérifications locales et
+reçoit son propre rapport signé, lié à l’image candidate. Le rapport indique l’exécution source
+et expire au plus tard 48 heures après la mesure initiale. Les requêtes modifiées et les nouveaux
+cas sont soumis au fournisseur. L’exécution quotidienne renouvelle la mesure. Les rapports plus
+anciens sans cache restent disponibles pour audit. Le corpus complet sans cache représente environ
+1 076 appels au classificateur (≈ 3,8 M de jetons en entrée et 0,5 M en sortie).
 
 **Un déploiement d’HISTOR avec le même WARDEN.** `scripts/deploy_histor.sh` se termine par
 `skopos-warden-quality rebind IMAGE`. Si le WARDEN embarqué dans la nouvelle image d’HISTOR est

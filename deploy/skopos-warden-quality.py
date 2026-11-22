@@ -137,8 +137,8 @@ def run(phase, image):
                 # Reviewed discovery cases are part of the gate too, not just the initial corpus.
                 if (state / 'discovery').exists():
                     shutil.copytree(state / 'discovery', stage / 'discovery', symlinks=True)
-                # The stage may reuse a complete same-day measurement of the identical build from the
-                # live state (quality_cycle.reusable); a different build always measures afresh.
+                # The stage may replay fresh answers to identical classifier requests from host state.
+                # Local checks and the signed receipt still run against this candidate image.
                 staged = {**config, 'state': str(stage), 'candidate': str(build), 'phase': 'candidate',
                           'reuseRoots': [str(state)],
                           'imageDigest': image, 'publication': str(state / 'public' / 'candidate.json')}

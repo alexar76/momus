@@ -142,17 +142,15 @@ Las filas parciales no cuentan como medición aprobada. Límites: ocho peticione
 ocho herramientas por lote, una petición de generación de hasta ocho propuestas por ronda diaria
 y ocho horas como máximo por ejecución del servicio.
 
-**Una medición, un pago.** Una medición anterior completa de entradas idénticas byte a byte se
-reutiliza en vez de comprarse otra vez: los mismos casos, la misma compilación de WARDEN (que
-lleva el prompt del clasificador) y —comparados campo a campo por `coverage_semantic.mjs` con su
-propia identidad— el mismo modelo, endpoint y protocolo. Solo durante doce horas: la ejecución
-diaria programada va con un día de diferencia, así que siempre mide de nuevo y detecta a un
-proveedor que cambió el modelo bajo el mismo nombre, mientras que una repetición el mismo día (un
-reintento, un candidato cuyo WARDEN no cambió) no cuesta nada. Una medición parcial nunca se
-reutiliza, una fila sin terminar se mide otra vez, y un informe que reutiliza una medición caduca
-48 horas después de la original, no después de reutilizarla. Como referencia: una ejecución del
-corpus completo son unas 1 076 llamadas al clasificador (≈ 3,8 M de tokens de entrada y 0,5 M de
-salida); una diaria, unas 45.
+**Reutilización de respuestas del modelo.** Durante doce horas, MOMUS puede reutilizar respuestas
+validadas de una ejecución aprobada con la misma batería y el mismo corpus. Deben coincidir el
+endpoint, las credenciales y la petición completa una vez normalizado el marcador aleatorio de
+WARDEN. La nueva compilación interpreta cada respuesta, ejecuta las comprobaciones locales y recibe
+su propio informe firmado, vinculado a la imagen candidata. El informe identifica la ejecución de
+origen y caduca como máximo 48 horas después de la medición original. Las peticiones modificadas y
+los casos recién generados llegan al proveedor. La ejecución diaria actualiza la medición. Los
+informes anteriores sin caché siguen disponibles para auditoría. El corpus completo sin caché
+requiere unas 1 076 llamadas al clasificador (≈ 3,8 M de tokens de entrada y 0,5 M de salida).
 
 **Un despliegue de HISTOR con el mismo WARDEN.** `scripts/deploy_histor.sh` termina con
 `skopos-warden-quality rebind IMAGE`. Si el WARDEN incluido en la nueva imagen de HISTOR es idéntico

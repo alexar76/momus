@@ -163,16 +163,14 @@ successful measurement. Calls are bounded: eight concurrent classifier requests,
 eight tools per batch, one generation call requesting up to eight proposals per
 daily round, and a maximum eight-hour service runtime.
 
-**Paying once for one measurement.** A complete earlier measurement of byte-identical inputs is
-reused instead of bought again: the same cases, the same WARDEN build (which carries the
-classifier prompt) and — compared field for field by `coverage_semantic.mjs` against its own
-identity — the same model, endpoint and protocol. Only for twelve hours: the scheduled daily run
-is a day apart, so it always measures afresh and still notices a provider that changed the model
-behind the same name, while a same-day repeat (a retry, a candidate whose WARDEN did not change)
-costs nothing. A partial measurement is never reused, a row that did not finish is measured again,
-and a report that reuses a measurement expires 48 hours after the original, not after the reuse.
-For scale: a full corpus run is about 1,076 classifier calls (≈ 3.8 M input and 0.5 M output
-tokens), a daily run about 45.
+**Reusing model answers.** For up to twelve hours, MOMUS can replay validated answers from a
+passing run of the same suite and corpus. The provider endpoint, credentials and full request
+must match after normalizing WARDEN's random request marker. The new build parses each answer,
+runs the local checks, and receives its own signed report bound to the candidate image. The
+report records the source run and expires at most 48 hours after the original measurement.
+Changed requests and newly generated cases use the provider. The daily run refreshes the
+measurement. Older runs without a request cache remain available as audit evidence. A full
+corpus run without reuse is about 1,076 classifier calls (≈ 3.8 M input and 0.5 M output tokens).
 
 **A HISTOR deploy with the same WARDEN.** `scripts/deploy_histor.sh` ends with
 `skopos-warden-quality rebind IMAGE`. When the new HISTOR image's vendored WARDEN is

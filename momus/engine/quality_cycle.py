@@ -16,6 +16,7 @@ import json
 import os
 import shutil
 import ssl
+import stat
 import subprocess
 import sys
 import time
@@ -126,67 +127,77 @@ def worker(config, argv, folder, *, timeout=14400):
              '--init-groups', '--no-new-privs', *argv], folder / 'process.log', env=env, timeout=timeout)
 
 
-# A COMPLETE earlier measurement of byte-identical inputs is reused instead of bought again:
-# the same cases, the same WARDEN build (which carries the classifier prompt), and — checked by
-# coverage_semantic.mjs against its own identity, field for field — the same model, endpoint and
-# protocol. Only for twelve hours: the scheduled daily run is always a day apart and so always
-# measures afresh (a provider can change the model behind the same name), while a same-day
-# repeat — a retry, or a HISTOR image whose vendored WARDEN did not change — costs nothing.
-# A partial measurement is never reused. A report that reuses one expires 48 h after the
-# original measurement, not after the reuse.
+# The host vouches for the source suite and the age and integrity of its response file.
+# The worker matches individual requests and runs the current build's checks on each answer.
 REUSE_MAX_AGE_S = 12 * 3600
+MODEL_CACHE_FILE = 'model-responses.jsonl'
 
 
-def reusable(config, build, corpus_hash, suite, *, now=None):
-    """(folder, measuredAt) of the newest complete measurement of exactly these cases with this
-    build under this host's evaluator state, or None."""
+def read_model_cache(path):
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError:
+        return b''
+    with os.fdopen(fd, 'rb') as stream:
+        info = os.fstat(fd)
+        if stat.S_ISREG(info.st_mode) and 0 < info.st_size <= 64 * 1024 * 1024:
+            return stream.read(info.st_size)
+    return b''
+
+
+def reusable(config, corpus_hash, suite, *, now=None):
+    """Most recent fresh, complete source for an identical suite and corpus."""
+    if suite == 'candidates':
+        return None
     now = time.time() if now is None else now
     roots = [Path(config['state']), *map(Path, config.get('reuseRoots', []))]
-    expected = build_digest(build)
     found = []
     for root in roots:
-        for identity_path in (*root.glob(f'runs/*/{suite}/identity.json'),
-                              *root.glob(f'native/*/runs/*/{suite}/identity.json')):
-            folder = identity_path.parent
+        for path in (*root.glob('runs/*/report.json'), *root.glob('native/*/runs/*/report.json')):
             try:
-                identity = json.loads(identity_path.read_text())
-                measured = json.loads((folder / 'report.json').read_text())
-                started = json.loads((folder.parent / 'report.json').read_text()).get('evaluatedAt')
-            except (OSError, ValueError, AttributeError):
+                report = json.loads(path.read_text())
+                result = report['suites'][suite]
+                identity = result['identity']
+                started = report['evaluatedAt']
+            except (OSError, ValueError, KeyError, TypeError):
                 continue
-            complete = all(isinstance(measured.get(k), dict) and measured[k].get('incomplete') == 0
-                           and measured[k].get('inspected') == measured[k].get('total')
-                           for k in ('attacks', 'benign'))
-            if (identity.get('corpusSha256') == corpus_hash and identity.get('buildDigest') == expected
-                    and isinstance(started, (int, float)) and now - REUSE_MAX_AGE_S <= started <= now
-                    and complete and (folder / 'decisions.jsonl').is_file()):
-                found.append((started, folder))
-    if not found:
-        return None
-    started, folder = max(found, key=lambda item: item[0])
-    return folder, started
+            if (report.get('status') == 'passed' and result.get('passed') is True
+                    and identity.get('corpusSha256') == corpus_hash and not identity.get('reused')
+                    and type(started) in (int, float) and now - REUSE_MAX_AGE_S <= started <= now
+                    and identity.get('modelResponsesSha256')):
+                found.append((started, path.parent / suite, identity['modelResponsesSha256']))
+    for started, folder, expected in sorted(found, reverse=True):
+        content = read_model_cache(folder / MODEL_CACHE_FILE)
+        if content and digest(content) == expected:
+            return folder, started, content
+    return None
 
 
 def semantic(config, build, cases, folder):
     folder.mkdir(parents=True)
     corpus_hash = write_cases(folder / 'cases.jsonl.gz', cases)
-    earlier = reusable(config, build, corpus_hash, folder.name)
+    earlier = reusable(config, corpus_hash, folder.name)
     if earlier:
         seed = folder / 'reuse'
         seed.mkdir()
-        for name in ('identity.json', 'decisions.jsonl'):
-            shutil.copyfile(earlier[0] / name, seed / name)
+        (seed / MODEL_CACHE_FILE).write_bytes(earlier[2])
     worker(config, [config.get('node', 'node'), str(Path(__file__).with_name('coverage_semantic.mjs')),
                     str(build), str(folder / 'cases.jsonl.gz'), str(folder)], folder)
     identity = json.loads((folder / 'identity.json').read_text())
     if identity['buildDigest'] != build_digest(build) or identity['corpusSha256'] != corpus_hash:
         raise ValueError('semantic evidence does not bind this build and corpus')
     rows = [json.loads(line) for line in (folder / 'decisions.jsonl').read_text().splitlines()]
-    if earlier:
-        # The worker says how many rows it took; the age is the host's own record, never the worker's.
-        used = json.loads((folder / 'reuse.json').read_text()) if (folder / 'reuse.json').exists() else {}
-        identity = {**identity, 'reused': {'run': earlier[0].parent.name, 'measuredAt': earlier[1],
-                                           'rows': int(used.get('rows', 0))}}
+    cache = read_model_cache(folder / MODEL_CACHE_FILE)
+    if cache:
+        identity['modelResponsesSha256'] = digest(cache)
+    reuse_path = folder / 'reuse.json'
+    if reuse_path.exists():
+        used = json.loads(reuse_path.read_text())
+        if (not earlier or type(used['requests']) is not int or used['requests'] < 1
+                or type(used['rows']) is not int or not 0 <= used['rows'] <= len(cases)):
+            raise ValueError('invalid classifier reuse evidence')
+        identity['reused'] = {'run': earlier[0].parent.name, 'measuredAt': earlier[1],
+                              'rows': used['rows'], 'requests': used['requests']}
     return rows, identity
 
 
@@ -362,10 +373,12 @@ def run(config, *, full=False):
             for case in candidates:
                 atomic(state / 'review-queue' / (digest(case['id'].encode()) + '.json'),
                        {'fixture': case, 'decision': by_id[case['id']], 'run': stamp, 'requiresHumanLabel': True})
-            reused = [s['identity']['reused']['measuredAt'] for s in report['suites'].values()
-                      if s.get('identity', {}).get('reused')]
+            reused = {name: suite['identity']['reused'] for name, suite in report['suites'].items()
+                      if suite.get('identity', {}).get('reused')}
             if reused:
-                report['expiresAt'] = min(report['expiresAt'], min(reused) + 48 * 3600)
+                report['semanticReuse'] = reused
+                oldest = min(source['measuredAt'] for source in reused.values())
+                report['expiresAt'] = min(report['expiresAt'], oldest + 48 * 3600)
             report['status'] = ('passed' if all(s['passed'] for s in report['suites'].values())
                                 and report['behaviour']['passed'] and report['behaviourSmoke']['passed'] else 'failed')
             # Only a complete full run can serve as the initial baseline; zero errors required.

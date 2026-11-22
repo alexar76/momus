@@ -1,12 +1,10 @@
-"""A paid measurement is bought once per identical input; a HISTOR image with the same WARDEN costs nothing."""
+"""Trusted model-response reuse and same-build HISTOR rebinding."""
 import fcntl
 import importlib.util
 import json
-import os
-from pathlib import Path
-import shutil
-import subprocess
 import time
+from hashlib import sha256
+from pathlib import Path
 
 import pytest
 
@@ -14,141 +12,102 @@ from momus.engine import quality_cycle
 from momus.engine.quality_cycle import REUSE_MAX_AGE_S, build_digest, reusable, write_cases
 
 ROOT = Path(__file__).parents[1]
-SEMANTIC = ROOT / 'momus/engine/coverage_semantic.mjs'
-CLASSIFIER = """import { appendFileSync } from 'node:fs';
-export const CLASSIFIER_SYSTEM_PROMPT = 'synthetic prompt';
-export async function inspectTools(tools) {
-  appendFileSync(process.env.FAKE_CALLS, 'call\\n');
-  return { findings: tools.map((t, index) => ({ index, severity: 'high', categories: ['secret_request'] })), incomplete: [] };
-}
-"""
-INDEX = """export class ThreatFeed {}
-export const Warden = { create: () => ({ vet: async () => ({ allow: false, findings: [] }) }) };
-"""
+RESPONSES = b'{"requestSha256":"example","content":"recorded response"}\n'
 
 
-def fake_build(path, marker=''):
+def fake_build(path, marker):
     (path / 'dist').mkdir(parents=True)
-    (path / 'dist/classifier.js').write_text(CLASSIFIER + marker)
-    (path / 'dist/index.js').write_text(INDEX)
+    (path / 'dist/classifier.js').write_text('// Classifier\n')
+    (path / 'dist/scan.js').write_text(marker)
     return path
 
 
-def cases(n=10):
-    return [{'id': f'case-{i}', 'label': 'malicious', 'language': 'en',
-             'tools': [{'name': 'do_task', 'description': f'variant {i}'}]} for i in range(n)]
-
-
-def measure(build, corpus, out, calls, *, model='synthetic-model'):
-    env = {'PATH': os.environ['PATH'], 'WARDEN_CLASSIFIER_URL': 'https://classifier.invalid/v1',
-           'WARDEN_CLASSIFIER_MODEL': model, 'WARDEN_CLASSIFIER_API_KEY': 'synthetic-key',
-           'WARDEN_CLASSIFIER_EVAL_CONCURRENCY': '2', 'FAKE_CALLS': str(calls)}
-    subprocess.run(['node', str(SEMANTIC), str(build), str(corpus), str(out)], env=env, check=True,
-                   capture_output=True, timeout=60)
-    return len(calls.read_text().splitlines()) if calls.exists() else 0
-
-
-def seed(source, out):
-    (out / 'reuse').mkdir(parents=True)
-    for name in ('identity.json', 'decisions.jsonl'):
-        shutil.copyfile(source / name, out / 'reuse' / name)
-
-
-def test_identical_identity_reuses_every_finished_row_and_buys_nothing(tmp_path):
-    build = fake_build(tmp_path / 'build')
-    corpus = tmp_path / 'cases.jsonl.gz'
-    write_cases(corpus, cases())
-    calls = tmp_path / 'calls'
-    assert measure(build, corpus, tmp_path / 'first', calls) == 2  # 10 cases, 8 per batch
-
-    seed(tmp_path / 'first', tmp_path / 'second')
-    assert measure(build, corpus, tmp_path / 'second', calls) == 2, 'no new paid call'
-    assert json.loads((tmp_path / 'second/reuse.json').read_text()) == {'rows': 10}
-    assert (json.loads((tmp_path / 'second/report.json').read_text())['attacks']
-            == json.loads((tmp_path / 'first/report.json').read_text())['attacks'])
-
-
-def test_another_model_or_build_never_reuses(tmp_path):
-    build = fake_build(tmp_path / 'build')
-    corpus = tmp_path / 'cases.jsonl.gz'
-    write_cases(corpus, cases())
-    calls = tmp_path / 'calls'
-    measure(build, corpus, tmp_path / 'first', calls)
-    seed(tmp_path / 'first', tmp_path / 'other-model')
-    assert measure(build, corpus, tmp_path / 'other-model', calls, model='another-model') == 4
-    assert not (tmp_path / 'other-model/reuse.json').exists()
-    seed(tmp_path / 'first', tmp_path / 'other-build')
-    assert measure(fake_build(tmp_path / 'build2', '// changed\n'), corpus, tmp_path / 'other-build', calls) == 6
-
-
-def test_an_unfinished_row_is_measured_again(tmp_path):
-    build = fake_build(tmp_path / 'build')
-    corpus = tmp_path / 'cases.jsonl.gz'
-    write_cases(corpus, cases())
-    calls = tmp_path / 'calls'
-    measure(build, corpus, tmp_path / 'first', calls)
-    seed(tmp_path / 'first', tmp_path / 'second')
-    rows = [json.loads(line) for line in (tmp_path / 'second/reuse/decisions.jsonl').read_text().splitlines()]
-    rows[0]['status'] = 'incomplete'
-    (tmp_path / 'second/reuse/decisions.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in rows))
-    assert measure(build, corpus, tmp_path / 'second', calls) == 3, 'exactly one batch for one row'
-    assert json.loads((tmp_path / 'second/reuse.json').read_text()) == {'rows': 9}
-
-
-def earlier(state, build, corpus_hash, *, at, suite='development', native=False, incomplete=0, stamp='r1'):
+def earlier(state, build, corpus_hash, *, at, suite='development', native=False, passed=True,
+            status='passed', reused=None, stamp='r1'):
     run = (state / 'native' / 'stage' / 'runs' / stamp) if native else (state / 'runs' / stamp)
     folder = run / suite
     folder.mkdir(parents=True)
-    (folder / 'identity.json').write_text(json.dumps({'corpusSha256': corpus_hash, 'buildDigest': build_digest(build)}))
-    counts = {'total': 4, 'inspected': 4 - incomplete, 'high': 4, 'flagged': 4, 'incomplete': incomplete}
-    (folder / 'report.json').write_text(json.dumps({'attacks': counts, 'benign': {**counts, 'total': 0, 'inspected': 0,
-                                                                                   'incomplete': 0}}))
-    (folder / 'decisions.jsonl').write_text('')
-    (run / 'report.json').write_text(json.dumps({'evaluatedAt': at}))
+    (folder / 'model-responses.jsonl').write_bytes(RESPONSES)
+    identity = {'corpusSha256': corpus_hash, 'buildDigest': build_digest(build),
+                'modelResponsesSha256': sha256(RESPONSES).hexdigest()}
+    if reused is not None:
+        identity['reused'] = reused
+    (run / 'report.json').write_text(json.dumps({
+        'evaluatedAt': at, 'run': stamp, 'buildDigest': build_digest(build), 'status': status,
+        'suites': {suite: {'passed': passed, 'identity': identity}},
+    }))
     return folder
 
 
-def test_only_a_complete_same_day_measurement_of_the_same_inputs_is_reused(tmp_path):
-    build = fake_build(tmp_path / 'build')
+def test_fresh_matching_responses_can_seed_a_different_build(tmp_path):
+    before = fake_build(tmp_path / 'before', '// original scan')
+    after = fake_build(tmp_path / 'after', '// updated scan')
     state = tmp_path / 'state'
-    now = time.time()
-    config = {'state': str(state)}
-    assert reusable(config, build, 'corpus', 'development', now=now) is None
-    old = earlier(state, build, 'corpus', at=now - REUSE_MAX_AGE_S - 60, stamp='old')
-    assert reusable(config, build, 'corpus', 'development', now=now) is None, 'older than twelve hours'
-    earlier(state, build, 'corpus', at=now - 60, stamp='partial', incomplete=1)
-    assert reusable(config, build, 'corpus', 'development', now=now) is None, 'a partial measurement'
-    assert reusable(config, build, 'other-corpus', 'development', now=now) is None
-    fresh = earlier(state, build, 'corpus', at=now - 120, stamp='fresh')
-    assert reusable(config, build, 'corpus', 'development', now=now) == (fresh, now - 120)
-    assert reusable(config, build, 'corpus', 'holdout', now=now) is None, 'suites never mix'
-    assert reusable(config, fake_build(tmp_path / 'other'  , '//x'), 'corpus', 'development', now=now) is None
-    stage = earlier(state, build, 'corpus', at=now - 30, stamp='staged', native=True)
-    assert reusable(config, build, 'corpus', 'development', now=now) == (stage, now - 30), 'candidate stages count'
-    # a candidate stage looks into the live state through reuseRoots
-    assert reusable({'state': str(tmp_path / 'empty'), 'reuseRoots': [str(state)]}, build, 'corpus',
-                    'development', now=now)[0] == stage
-    assert old.exists()
+    now = 65_000
+    earlier(state, before, 'corpus', at=now - 120)
+    stage = earlier(state, before, 'corpus', at=now - 30, stamp='staged', native=True)
+    earlier(state, before, 'different-corpus', at=now - 20, stamp='different-corpus')
+    earlier(state, before, 'corpus', at=now - 10, suite='holdout', stamp='holdout')
+    config = {'state': str(tmp_path / 'next-stage'), 'reuseRoots': [str(state)]}
+
+    assert build_digest(before) != build_digest(after)
+    assert reusable(config, 'corpus', 'development', now=now) == (stage, now - 30, RESPONSES)
 
 
-def test_semantic_seeds_the_worker_and_the_report_expires_with_the_original(tmp_path, monkeypatch):
-    build = fake_build(tmp_path / 'build')
+@pytest.mark.parametrize('sample', ['expired', 'future', 'failed-run', 'failed-suite', 'replayed', 'tampered',
+                                    'unbound', 'symlink', 'candidates'])
+def test_host_rejects_ineligible_response_archives(tmp_path, sample):
+    build = fake_build(tmp_path / 'build', '// scan')
+    state = tmp_path / 'state'
+    now = 65_000
+    measured = {'expired': now - REUSE_MAX_AGE_S - 1, 'future': now + 1}.get(sample, now - 60)
+    suite = 'candidates' if sample == 'candidates' else 'development'
+    reused = {'run': 'old', 'measuredAt': now - REUSE_MAX_AGE_S - 1, 'rows': 4, 'requests': 1}
+    source = earlier(
+        state, build, 'corpus', at=measured, suite=suite, passed=sample != 'failed-suite',
+        status='failed' if sample == 'failed-run' else 'passed',
+        reused=reused if sample == 'replayed' else None,
+    )
+    if sample == 'tampered':
+        (source / 'model-responses.jsonl').write_bytes(b'{}\n')
+    elif sample == 'unbound':
+        report = source.parent / 'report.json'
+        document = json.loads(report.read_text())
+        del document['suites'][suite]['identity']['modelResponsesSha256']
+        report.write_text(json.dumps(document))
+    elif sample == 'symlink':
+        contents = tmp_path / 'linked-responses'
+        (source / 'model-responses.jsonl').rename(contents)
+        (source / 'model-responses.jsonl').symlink_to(contents)
+
+    assert reusable({'state': str(state)}, 'corpus', suite, now=now) is None
+
+
+def test_semantic_records_response_provenance_and_the_current_build(tmp_path, monkeypatch):
+    before = fake_build(tmp_path / 'before', '// original scan')
+    after = fake_build(tmp_path / 'after', '// updated scan')
     state = tmp_path / 'state'
     config = {'state': str(state)}
-    cs = cases(4)
+    cs = [{'id': 'case-0', 'label': 'benign', 'language': 'en', 'tools': [{'name': 'lookup'}]}]
     corpus_hash = write_cases(tmp_path / 'probe.gz', cs)
     measured_at = time.time() - 3600
-    source = earlier(state, build, corpus_hash, at=measured_at)
-    (source / 'decisions.jsonl').write_text('{"id":"case-0"}\n')
+    earlier(state, before, corpus_hash, at=measured_at)
+    row = {'id': 'case-0', 'status': 'scanned', 'findings': [], 'reviewedStatic': {'allow': True}}
 
     def fake_worker(config, argv, folder, timeout=14400):
-        assert (folder / 'reuse/decisions.jsonl').read_text() == '{"id":"case-0"}\n'
-        (folder / 'identity.json').write_text(json.dumps({'buildDigest': build_digest(build), 'corpusSha256': corpus_hash}))
-        (folder / 'decisions.jsonl').write_text('')
-        (folder / 'reuse.json').write_text('{"rows": 4}')
+        assert (folder / 'reuse/model-responses.jsonl').read_bytes() == RESPONSES
+        assert not (folder / 'reuse/decisions.jsonl').exists()
+        (folder / 'identity.json').write_text(json.dumps({'buildDigest': build_digest(after), 'corpusSha256': corpus_hash}))
+        (folder / 'decisions.jsonl').write_text(json.dumps(row) + '\n')
+        (folder / 'reuse.json').write_text('{"rows": 1, "requests": 1}')
+        (folder / 'model-responses.jsonl').write_bytes(RESPONSES)
+
     monkeypatch.setattr(quality_cycle, 'worker', fake_worker)
-    rows, identity = quality_cycle.semantic(config, build, cs, tmp_path / 'run' / 'development')
-    assert identity['reused'] == {'run': 'r1', 'measuredAt': measured_at, 'rows': 4}
+    rows, identity = quality_cycle.semantic(config, after, cs, tmp_path / 'run' / 'development')
+    assert rows == [row]
+    assert identity['buildDigest'] == build_digest(after)
+    assert identity['reused'] == {'run': 'r1', 'measuredAt': measured_at, 'rows': 1, 'requests': 1}
+    assert identity['modelResponsesSha256'] == sha256(RESPONSES).hexdigest()
 
 
 def load_hook():
