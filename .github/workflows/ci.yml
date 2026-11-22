@@ -40,7 +40,7 @@ jobs:
           git clone --no-checkout https://github.com/alexar76/skopos.git "$GITHUB_WORKSPACE/../skopos"
           git -C "$GITHUB_WORKSPACE/../skopos" checkout 38a44c00ccd8a092693d7e6b7e9de8d3e4a2f360  # alexar76/skopos main, 2026-11-07
           git clone --no-checkout https://github.com/alexar76/warden.git "$GITHUB_WORKSPACE/../warden"
-          git -C "$GITHUB_WORKSPACE/../warden" checkout 147a6fe8b4b1f84013c29cd4d7f27889a5a4edd7  # alexar76/warden main, 2026-11-07
+          git -C "$GITHUB_WORKSPACE/../warden" checkout b2ec2d544785681c56c41df41ae210898aeaf089  # alexar76/warden main, 2026-11-22 (0.37.1 evidence)
           git clone --no-checkout https://github.com/alexar76/histor.git "$GITHUB_WORKSPACE/../histor"
           git -C "$GITHUB_WORKSPACE/../histor" checkout 757dd3a5c0ffefffa86b46a4e4a7d00be489ad36  # alexar76/histor main, 2026-11-07
       - name: Pytest
